@@ -56,6 +56,17 @@
             max-width: 350px;
         }
 
+        /* 使用者定位動畫 */
+        @keyframes pulse-blue {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .user-location-pulse {
+            width: 16px; height: 16px; background-color: #3b82f6; border: 2px solid white; border-radius: 50%;
+            animation: pulse-blue 2s infinite;
+        }
+
         /* 列印專用樣式 */
         #print-overlay { display: none; }
         @media print {
@@ -118,11 +129,16 @@
                 </button>
             </div>
 
-            <!-- 其他功能區塊 (列印、清除) -->
+            <!-- 其他功能區塊 (定位、列印、清除) -->
             <div class="flex items-center gap-2 ml-auto sm:ml-0">
+                <button onclick="locateUser()" class="bg-sky-500 hover:bg-sky-600 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2" title="定位現在位置">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.242-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span class="text-sm hidden sm:inline">定位</span>
+                </button>
+
                 <button onclick="printMap()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                    <span class="text-sm">列印</span>
+                    <span class="text-sm hidden sm:inline">列印</span>
                 </button>
 
                 <button onclick="clearMap()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
@@ -155,6 +171,7 @@
         let gpxLayerGroup; 
         let photoDataArray = []; 
         let geoLayersData = []; 
+        let userLocationMarker = null;
 
         // === 定義座標系統轉換 (TWD97 EPSG:3826) ===
         // 使用 TM2 投影，中央經線 121，原點向西平移 250,000 公尺
@@ -289,18 +306,47 @@
                     L.DomEvent.disableScrollPropagation(div);
 
                     div.innerHTML = `
-                        <div class="font-bold text-gray-800 mb-2 border-b pb-1 flex items-center gap-1">
-                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            疊加圖層控制
+                        <div id="geo-layer-header" class="font-bold text-gray-800 mb-1 border-b pb-1 flex items-center justify-between cursor-pointer select-none">
+                            <div class="flex items-center gap-1">
+                                <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                <span>疊加圖層控制</span>
+                            </div>
+                            <svg id="geo-layer-toggle-icon" class="w-5 h-5 text-gray-500 transform transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                         </div>
-                        <div id="geo-layer-list" class="flex flex-col gap-2 mb-2 max-h-[50vh] overflow-y-auto pr-2"></div>
-                        <div class="border-t pt-2 mt-2">
-                            <div class="flex items-center justify-between text-sm">
-                                <span class="text-gray-600 font-medium">疊加圖層透明度</span>
-                                <input type="range" min="0" max="1" step="0.05" value="${initialOpacity}" class="w-24 cursor-pointer" oninput="changeOpacity(this.value)">
+                        <div id="geo-layer-content" class="transition-all duration-300 overflow-hidden">
+                            <div id="geo-layer-list" class="flex flex-col gap-2 mb-2 max-h-[50vh] overflow-y-auto pr-2"></div>
+                            <div class="border-t pt-2 mt-2">
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-600 font-medium">疊加圖層透明度</span>
+                                    <input type="range" min="0" max="1" step="0.05" value="${initialOpacity}" class="w-24 cursor-pointer" oninput="changeOpacity(this.value)">
+                                </div>
                             </div>
                         </div>
                     `;
+
+                    // 綁定摺疊收合事件
+                    setTimeout(() => {
+                        const header = div.querySelector('#geo-layer-header');
+                        const content = div.querySelector('#geo-layer-content');
+                        const icon = div.querySelector('#geo-layer-toggle-icon');
+                        
+                        // 手機版螢幕寬度較小，預設將選單收合
+                        if (window.innerWidth < 768) {
+                            content.style.display = 'none';
+                            icon.classList.add('rotate-180');
+                        }
+
+                        header.addEventListener('click', () => {
+                            if (content.style.display === 'none') {
+                                content.style.display = 'block';
+                                icon.classList.remove('rotate-180');
+                            } else {
+                                content.style.display = 'none';
+                                icon.classList.add('rotate-180');
+                            }
+                        });
+                    }, 0);
+
                     return div;
                 }
             });
@@ -683,10 +729,60 @@
 
             markerGroup.clearLayers();
             gpxLayerGroup.clearLayers(); 
+            if (userLocationMarker) {
+                map.removeLayer(userLocationMarker);
+                userLocationMarker = null;
+            }
             photoDataArray = [];
             updateButtons();
             document.getElementById('status-bar').style.display = 'none';
             map.setView([23.6978, 120.9605], 7);
+        }
+
+        // === 獲取手機 GPS 現在位置 ===
+        function locateUser() {
+            if (!navigator.geolocation) {
+                showStatus("您的設備不支援地理定位功能", "red");
+                return;
+            }
+
+            showStatus("正在獲取您的位置...", "blue");
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const accuracy = position.coords.accuracy;
+
+                    if (userLocationMarker) {
+                        map.removeLayer(userLocationMarker);
+                    }
+
+                    // 建立帶有動畫效果的定位點
+                    const userIcon = L.divIcon({
+                        className: 'custom-user-marker',
+                        html: '<div class="user-location-pulse"></div>',
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+
+                    userLocationMarker = L.marker([lat, lon], {icon: userIcon})
+                        .bindPopup(`<div class="text-sm font-bold text-center text-gray-800">📍 您的現在位置<br><span class="text-xs text-gray-500 font-normal">精確度: 約 ${Math.round(accuracy)} 公尺</span></div>`)
+                        .addTo(map);
+
+                    map.setView([lat, lon], 16); 
+                    userLocationMarker.openPopup();
+                    showStatus("定位成功！", "green");
+                },
+                (error) => {
+                    let msg = "定位失敗";
+                    if (error.code === 1) msg = "您拒絕了定位存取權限";
+                    else if (error.code === 2) msg = "無法獲取位置資訊 (訊號不良)";
+                    else if (error.code === 3) msg = "獲取位置逾時";
+                    showStatus(msg, "red");
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
         }
 
         // === 產生照片縮圖 Blob ===
