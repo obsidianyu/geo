@@ -2,3 +2,18 @@ site_name: 工程地質文件庫
 theme:
   name: material
   language: zh-TW
+  
+  # 1. 主題顏色設定
+  palette:
+    primary: blue grey  # 網站主色調 (沉穩的藍灰色，適合工程專業)
+    accent: amber       # 點綴色 (按鈕或連結滑過時的顏色，如琥珀色警示感)
+
+  # 2. 網站圖示設定
+  icon:
+    logo: material/terrain  # 網站左上角的 Logo (這裡設定為地形/山脈圖示)
+  favicon: material/terrain # 瀏覽器分頁上的小圖示
+
+# 3. 啟用標籤功能模組
+plugins:
+  - search
+  - tags
