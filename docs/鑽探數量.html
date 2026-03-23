@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工程鑽探數量法規試算系統</title>
+    <style>
+        :root {
+            --primary-color: #0f766e;
+            --secondary-color: #0d9488;
+            --bg-color: #f0fdfa;
+            --text-main: #334155;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, 'Microsoft JhengHei';
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 8px;
+            margin-top: 0;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #475569;
+        }
+
+        .input-with-unit {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            flex: 1;
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.2);
+        }
+
+        .unit-select {
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background-color: #f8fafc;
+            font-size: 16px;
+            color: #334155;
+            cursor: pointer;
+            outline: none;
+        }
+        
+        .unit-select:focus {
+            border-color: var(--primary-color);
+        }
+
+        .result-box {
+            background: #ecfdf5;
+            border-left: 5px solid #10b981;
+            padding: 15px 20px;
+            margin-top: 25px;
+            border-radius: 4px;
+        }
+
+        .result-item {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .result-item span.highlight {
+            font-weight: bold;
+            color: #047857;
+            font-size: 1.2em;
+        }
+
+        .law-block {
+            background: #fffbeb;
+            border-left: 5px solid #f59e0b;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .law-title {
+            font-weight: bold;
+            color: #b45309;
+            margin-bottom: 5px;
+        }
+
+        @media (max-width: 600px) {
+            .input-with-unit {
+                flex-direction: column;
+                gap: 5px;
+            }
+            .card { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🏛️ 鑽探數量法規試算系統</h1>
+
+    <!-- 試算器區塊 -->
+    <div class="card">
+        <h2>參數輸入與試算</h2>
+        
+        <div class="form-group">
+            <label for="areaSWC">1. 水保法基地面積：</label>
+            <div class="input-with-unit">
+                <input type="number" id="areaSWC" placeholder="請輸入水保法基地面積" min="0" step="any">
+                <select id="unitSWC" class="unit-select">
+                    <option value="sqm">平方公尺 (m²)</option>
+                    <option value="ha">公頃 (ha)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="areaGeo">2. 地質敏感區重疊面積 / 細部調查區面積 (適用地質法)：</label>
+            <div class="input-with-unit">
+                <input type="number" id="areaGeo" placeholder="請輸入重疊面積 (若無則填0或留空)" min="0" step="any">
+                <select id="unitGeo" class="unit-select">
+                    <option value="sqm">平方公尺 (m²)</option>
+                    <option value="ha">公頃 (ha)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="areaBuildBase">3. 建築法基地面積：</label>
+            <div class="input-with-unit">
+                <input type="number" id="areaBuildBase" placeholder="請輸入建築法基地面積" min="0" step="any">
+                <select id="unitBuildBase" class="unit-select">
+                    <option value="sqm">平方公尺 (m²)</option>
+                    <option value="ha">公頃 (ha)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="areaBuildFound">4. 建築物基礎涵蓋面積 (適用建築法)：</label>
+            <div class="input-with-unit">
+                <input type="number" id="areaBuildFound" placeholder="請輸入基礎涵蓋面積" min="0" step="any">
+                <select id="unitBuildFound" class="unit-select">
+                    <option value="sqm">平方公尺 (m²)</option>
+                    <option value="ha">公頃 (ha)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="result-box" id="resultBox">
+            <div class="result-item" id="resSWC"><strong>水土保持法：</strong> 未輸入面積</div>
+            <div class="result-item" id="resGeo"><strong>地質法：</strong> 未輸入重疊面積</div>
+            <div class="result-item" id="resBuild"><strong>建築技術規則：</strong> 未輸入建築法基地或基礎面積</div>
+            <div style="font-size: 0.85em; color: #64748b; margin-top: 15px; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
+                * 註：若同一開發案涉及多項法規，實際鑽孔配置與數量應以「最嚴格（孔數最多）」之法規及現場專業技師判定為準。
+            </div>
+        </div>
+    </div>
+
+    <!-- 法規概述區塊 -->
+    <div class="card">
+        <h2>⚖️ 相關法規條文概述</h2>
+        
+        <div class="law-block">
+            <div class="law-title">1. 水土保持技術規範 第62條</div>
+            <p><strong>適用條件：</strong>山坡地開發需提送水土保持計畫者。</p>
+            <ul>
+                <li>基地面積在 <strong>0.5公頃以下</strong> 者，至少 <strong>3孔</strong>。</li>
+                <li>基地面積 <strong>大於0.5公頃且在10公頃以下</strong> 者，每增加 1.5公頃，增加 1孔（未滿1.5以1.5計）。</li>
+                <li>基地面積在 <strong>10公頃以上</strong> 者，每增加 5公頃，至少增加 1孔（未滿5公頃以5公頃計）。</li>
+            </ul>
+        </div>
+
+        <div class="law-block">
+            <div class="law-title">2. 地質敏感區基地地質調查及地質安全評估作業準則 第13條(斷層) / 第17條(山崩)</div>
+            <p><strong>適用條件：</strong>開發基地與法定「活動斷層」或「山崩與地滑」地質敏感區重疊，需辦理細部調查者。</p>
+            <ul>
+                <li>細部調查區（重疊）面積在 <strong>0.1公頃以下</strong> 者，至少 <strong>2孔</strong>。</li>
+                <li><strong>0.1公頃 ~ 10公頃</strong>：每增加 1公頃 增加 1孔（未滿1公頃以1公頃計）。</li>
+                <li><strong>10公頃 ~ 50公頃</strong>：每增加 2公頃 增加 1孔（未滿2公頃以2公頃計）。</li>
+                <li><strong>逾50公頃</strong>：視基地地形及開發行為需求決定。</li>
+            </ul>
+        </div>
+
+        <div class="law-block">
+            <div class="law-title">3. 建築技術規則建築構造編 第64、65條 & 建築物基礎構造設計規範</div>
+            <p><strong>適用條件：</strong>建築物新建申請建照，需辦理地基調查者。</p>
+            <ul>
+                <li>同一基地之調查點數 <strong>不得少於2點</strong>。</li>
+                <li>基地面積 <strong>每 600 m²</strong> 或建築物基礎所涵蓋面積 <strong>每 300 m²</strong> 者，應設一調查點。</li>
+                <li>基地面積超過 6,000 m² 及建築物基礎涵蓋面積超過 3,000 m² 之部分，得視基地地形、地層複雜性及結構需求，決定其調查點數。</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 儲存各欄位目前的單位狀態，用於切換時的數值換算
+    const currentUnits = {
+        SWC: 'sqm',
+        Geo: 'sqm',
+        BuildBase: 'sqm',
+        BuildFound: 'sqm'
+    };
+
+    const fields = ['SWC', 'Geo', 'BuildBase', 'BuildFound'];
+
+    fields.forEach(field => {
+        const inputEl = document.getElementById(`area${field}`);
+        const selectEl = document.getElementById(`unit${field}`);
+
+        // 監聽數字輸入事件
+        inputEl.addEventListener('input', calculateHoles);
+
+        // 監聽單位切換事件：轉換現有數字並重新計算
+        selectEl.addEventListener('change', (e) => {
+            const newUnit = e.target.value;
+            const oldUnit = currentUnits[field];
+            
+            if (inputEl.value !== '') {
+                let val = parseFloat(inputEl.value);
+                // 平方公尺轉公頃
+                if (oldUnit === 'sqm' && newUnit === 'ha') {
+                    inputEl.value = (val / 10000).toFixed(4);
+                } 
+                // 公頃轉平方公尺
+                else if (oldUnit === 'ha' && newUnit === 'sqm') {
+                    inputEl.value = Math.round(val * 10000);
+                }
+            }
+            
+            currentUnits[field] = newUnit;
+            calculateHoles();
+        });
+    });
+
+    // 取得統一單位的數值輔助函數
+    function getAreaInUnit(field, targetUnit) {
+        const val = parseFloat(document.getElementById(`area${field}`).value) || 0;
+        const currentUnit = currentUnits[field];
+        
+        if (val === 0) return 0;
+        
+        if (targetUnit === 'ha') {
+            return currentUnit === 'ha' ? val : val / 10000;
+        } else if (targetUnit === 'sqm') {
+            return currentUnit === 'sqm' ? val : val * 10000;
+        }
+        return 0;
+    }
+
+    // 主計算邏輯
+    function calculateHoles() {
+        // 取出換算後的數值
+        const swcHa = getAreaInUnit('SWC', 'ha');
+        const geoHa = getAreaInUnit('Geo', 'ha');
+        const buildBaseSqm = getAreaInUnit('BuildBase', 'sqm');
+        const buildFoundSqm = getAreaInUnit('BuildFound', 'sqm');
+
+        // 1. 水土保持法計算 (使用公頃計算)
+        let swcStr = "未輸入面積";
+        if (document.getElementById('areaSWC').value !== '') {
+            let swcHoles = 0;
+            if (swcHa <= 0.5) {
+                swcHoles = 3;
+            } else if (swcHa <= 10) {
+                swcHoles = 3 + Math.ceil((swcHa - 0.5) / 1.5);
+            } else {
+                swcHoles = 10 + Math.ceil((swcHa - 10) / 5);
+            }
+            swcStr = `至少 <span class="highlight">${swcHoles}</span> 孔`;
+        }
+        document.getElementById('resSWC').innerHTML = `<strong>水土保持法：</strong> ${swcStr}`;
+
+        // 2. 地質法計算 (使用公頃計算)
+        let geoStr = "未輸入重疊面積";
+        if (document.getElementById('areaGeo').value !== '') {
+            let geoHoles = 0;
+            let geoNote = "";
+            if (geoHa <= 0.1) {
+                geoHoles = 2;
+            } else if (geoHa <= 10) {
+                geoHoles = 2 + Math.ceil((geoHa - 0.1) / 1);
+            } else if (geoHa <= 50) {
+                geoHoles = 12 + Math.ceil((geoHa - 10) / 2);
+            } else {
+                geoHoles = 32;
+                geoNote = " 以上 (逾50公頃部分視基地特性決定)";
+            }
+            geoStr = `至少 <span class="highlight">${geoHoles}</span> 孔${geoNote}`;
+        }
+        document.getElementById('resGeo').innerHTML = `<strong>地質法：</strong> ${geoStr}`;
+
+        // 3. 建築技術規則計算 (使用平方公尺計算)
+        let buildStr = "未輸入建築法基地或基礎面積";
+        if (document.getElementById('areaBuildBase').value !== '' || document.getElementById('areaBuildFound').value !== '') {
+            let h1 = buildBaseSqm > 0 ? Math.ceil(Math.min(buildBaseSqm, 6000) / 600) : 0;
+            let h2 = buildFoundSqm > 0 ? Math.ceil(Math.min(buildFoundSqm, 3000) / 300) : 0;
+            
+            // 基礎要求至少兩點，並取基地面積或基礎面積計算出之較大值
+            let buildHoles = Math.max(2, Math.max(h1, h2));
+            let buildNote = "";
+            
+            if (buildBaseSqm > 6000 || buildFoundSqm > 3000) {
+                buildNote = " 以上 (面積超過上限部分，得依地層及結構需求由技師決定增設)";
+            }
+            buildStr = `至少 <span class="highlight">${buildHoles}</span> 孔${buildNote}`;
+        }
+        document.getElementById('resBuild').innerHTML = `<strong>建築技術規則：</strong> ${buildStr}`;
+    }
+</script>
+
+</body>
+</html>

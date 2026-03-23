@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>照片地理資訊擷取與地圖展示</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- EXIFR 庫 (用於讀取 EXIF 與 GPS) -->
+    <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+    
+    <!-- Proj4js 庫 (用於座標轉換 WGS84 -> TWD97) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    
+    <!-- shp-write 庫 (用於匯出 SHP 檔) -->
+    <script src="https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
+
+    <!-- JSZip 庫 (用於打包 KMZ 檔案) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <style>
+        /* 地圖容器設定為填滿剩餘空間 */
+        #map {
+            flex-grow: 1;
+            width: 100%;
+            z-index: 1;
+        }
+        /* 隱藏預設檔案上傳按鈕，使用自訂樣式 */
+        input[type="file"] {
+            display: none;
+        }
+        .marker-icon {
+            background: transparent;
+            border: none;
+        }
+        .table-auto th, .table-auto td {
+            padding: 0.5rem;
+            border: 1px solid #e5e7eb;
+        }
+        .table-auto th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+            text-align: left;
+            white-space: nowrap;
+        }
+        /* Leaflet popup 樣式微調 */
+        .leaflet-popup-content {
+            margin: 14px;
+            width: max-content !important;
+            max-width: 350px;
+        }
+
+        /* 列印專用樣式 */
+        #print-overlay { display: none; }
+        @media print {
+            @page { size: landscape; margin: 0; }
+            body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: white; }
+            /* 隱藏無關介面 */
+            header, #status-bar, .leaflet-control-container { display: none !important; }
+            /* 地圖撐滿全版 */
+            #map { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100vw !important; height: 100vh !important; }
+            /* 顯示帶有座標的外框 */
+            #print-overlay { display: block !important; position: absolute; inset: 0; border: 8px solid #222; z-index: 9999; pointer-events: none; }
+            .print-label { position: absolute; background: rgba(255, 255, 255, 0.9); padding: 4px 8px; font-weight: bold; font-family: monospace; font-size: 12px; white-space: pre-line; line-height: 1.4; color: #000; }
+            #print-tl { top: 0; left: 0; border-right: 2px solid #222; border-bottom: 2px solid #222; }
+            #print-tr { top: 0; right: 0; border-left: 2px solid #222; border-bottom: 2px solid #222; text-align: right; }
+            #print-bl { bottom: 0; left: 0; border-right: 2px solid #222; border-top: 2px solid #222; }
+            #print-br { bottom: 0; right: 0; border-left: 2px solid #222; border-top: 2px solid #222; text-align: right; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col h-screen overflow-hidden text-gray-800 relative">
+
+    <!-- 頂部控制列 -->
+    <header class="bg-white shadow-md p-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-10 relative shrink-0">
+        <div class="flex items-center gap-3">
+            <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <h1 class="text-xl font-bold text-gray-800 whitespace-nowrap">照片 EXIF 工具</h1>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-3">
+            
+            <!-- 匯入 (上傳) 區塊 -->
+            <div class="flex items-center gap-2 bg-blue-50/60 p-1.5 rounded-lg border border-blue-200">
+                <span class="text-sm font-bold text-blue-800 ml-1 px-1">匯入</span>
+                <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span class="text-sm">照片</span>
+                    <input type="file" id="file-input" multiple accept="image/jpeg, image/png, image/heic" onchange="handleFiles(this.files)">
+                </label>
+
+                <label class="cursor-pointer bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
+                    <span class="text-sm">GPX</span>
+                    <input type="file" id="gpx-input" accept=".gpx" onchange="handleGPX(this.files)">
+                </label>
+            </div>
+            
+            <!-- 匯出 (下載) 區塊 -->
+            <div class="flex items-center gap-2 bg-green-50/60 p-1.5 rounded-lg border border-green-200">
+                <span class="text-sm font-bold text-green-800 ml-1 px-1">匯出</span>
+                <button onclick="exportKMZ()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2" id="btn-kmz" disabled>
+                    <span class="text-sm">KMZ</span>
+                </button>
+                
+                <button onclick="exportSHP()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2" id="btn-shp" disabled>
+                    <span class="text-sm">SHP</span>
+                </button>
+
+                <button onclick="exportCSV()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2" id="btn-csv" disabled>
+                    <span class="text-sm">CSV</span>
+                </button>
+            </div>
+
+            <!-- 其他功能區塊 (列印、清除) -->
+            <div class="flex items-center gap-2 ml-auto sm:ml-0">
+                <button onclick="printMap()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    <span class="text-sm">列印</span>
+                </button>
+
+                <button onclick="clearMap()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-md shadow transition flex items-center gap-2">
+                    <span class="text-sm">清除</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 狀態列 -->
+    <div id="status-bar" class="bg-blue-50 text-blue-800 text-sm px-4 py-2 hidden border-b border-blue-100 shrink-0">
+        狀態訊息會顯示在這裡...
+    </div>
+
+    <!-- 地圖容器 -->
+    <div id="map"></div>
+
+    <!-- 列印用：地圖坐標外框 -->
+    <div id="print-overlay">
+        <div id="print-tl" class="print-label"></div>
+        <div id="print-tr" class="print-label"></div>
+        <div id="print-bl" class="print-label"></div>
+        <div id="print-br" class="print-label"></div>
+    </div>
+
+    <script>
+        // === 系統全域變數 ===
+        let map;
+        let markerGroup;
+        let gpxLayerGroup; 
+        let photoDataArray = []; 
+        let geoLayersData = []; 
+
+        // === 定義座標系統轉換 (TWD97 EPSG:3826) ===
+        // 使用 TM2 投影，中央經線 121，原點向西平移 250,000 公尺
+        proj4.defs("EPSG:3826", "+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
+
+        // === 網頁載入後初始化 ===
+        window.onload = function() {
+            initMap();
+            // 綁定列印事件以自動更新座標框
+            window.addEventListener('beforeprint', updatePrintFrame);
+        };
+
+        // === 初始化地圖 ===
+        function initMap() {
+            map = L.map('map').setView([23.6978, 120.9605], 7);
+
+            // ===========================
+            // 1. 定義底圖圖層 (Base Maps)
+            // ===========================
+            const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' });
+            const nlscOrthoLayer = L.tileLayer('https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}', { maxZoom: 19, attribution: '&copy; 國土測繪中心' });
+            
+            // 台灣 1/5000 地形圖 (Happyman KVP)
+            const happymanLayer = L.tileLayer('https://tile.happyman.idv.tw/mp/service?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=tw5k2000&STYLE=default&TILEMATRIXSET=gm_grid&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png', { maxZoom: 19, attribution: '&copy; happyman.idv.tw' });
+            
+            // 國土測繪中心 1/25000 地形圖 (NLSC B25000)
+            const nlscB25000Layer = L.tileLayer('https://wmts.nlsc.gov.tw/wmts/B25000/default/GoogleMapsCompatible/{z}/{y}/{x}', { maxZoom: 19, attribution: '&copy; 國土測繪中心' });
+            
+            // 台灣通用電子地圖 (NLSC EMAP5)
+            const nlscEmap5Layer = L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP5/default/GoogleMapsCompatible/{z}/{y}/{x}', { maxZoom: 19, attribution: '&copy; 國土測繪中心' });
+            
+            // 光達 6m 多向陰影圖 (作為底圖使用)
+            const shadw20BaseLayer = L.tileLayer('https://landslide.geologycloud.tw/jlwmts/jetlink/Shadw20/GoogleMapsCompatible/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; 地質雲', errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' });
+
+            // 預設加入 OSM
+            osmLayer.addTo(map);
+
+            // 依據指定的底圖順序建立選單
+            const baseMaps = {
+                "OpenStreetMap (預設)": osmLayer,
+                "國土測繪中心正射影像": nlscOrthoLayer,
+                "台灣1/5000地形圖": happymanLayer,
+                "國土測繪中心1/25000地形圖": nlscB25000Layer,
+                "台灣通用電子地圖": nlscEmap5Layer,
+                "光達6m多向陰影圖": shadw20BaseLayer
+            };
+
+            // 將底圖加入預設圖層控制 (位置左上角)
+            L.control.layers(baseMaps, null, {position: 'topleft'}).addTo(map);
+
+            // ===========================
+            // 2. 定義疊加圖層 (Overlay Layers)
+            // ===========================
+            const initialOpacity = 0.7;
+            const gsmmaUrl = 'https://geomap.gsmma.gov.tw/mapguide/mapagent/mapagent.fcgi';
+            const landslideUrl = 'https://landslide.geologycloud.tw/jlwmts/jetlink';
+            const nlscUrl = 'https://wmts.nlsc.gov.tw/wmts';
+            
+            // 嚴格依照要求順序定義疊加圖層
+            // zIndex 設定：數字越大，在畫面上顯示越上層。
+            // 陣列第一筆 (道路路網) zIndex 為 100，最後一筆 (陰影圖) 為 85。
+            const overlayConfigs = [
+                { name: "道路路網圖", layerId: "ROAD", type: "wmts-nlsc", url: nlscUrl, zIndex: 100 },
+                { name: "等高線圖2010-2015", layerId: "MOI_CONTOUR_2", type: "wmts-nlsc", url: nlscUrl, zIndex: 99 },
+                { name: "岩屑崩滑潛勢圖", layerId: "EGMS_08", type: "wmts-landslide", url: landslideUrl, zIndex: 98 },
+                { name: "岩體滑動潛勢圖", layerId: "EGMS_02", type: "wmts-landslide", url: landslideUrl, zIndex: 97 },
+                { name: "落石潛勢圖", layerId: "EGMS_07", type: "wmts-landslide", url: landslideUrl, zIndex: 96 },
+                { name: "歷史山崩目錄", layerId: "HistoryLS", type: "wmts-landslide", url: landslideUrl, zIndex: 95 },
+                { name: "潛在大規模崩塌主崩崖", layerId: "LFI_01", type: "wmts-landslide", url: landslideUrl, zIndex: 94 },
+                { name: "老山崩", layerId: "EGMS_04", type: "wmts-landslide", url: landslideUrl, zIndex: 93 },
+                { name: "山崩與地滑地質敏感區", layerId: "SensitiveArea", type: "wmts-landslide", url: landslideUrl, zIndex: 92 },
+                { name: "活動斷層", layerId: "WMS/25K_Geomap_fault_2021", type: "wms", url: gsmmaUrl, zIndex: 91 },
+                { name: "活動斷層地質敏感區", layerId: "WMS/Sensitive_area_fault", type: "wms", url: gsmmaUrl, zIndex: 90 },
+                { name: "地下水補注地質敏感區", layerId: "WMS/Sensitive_area_groundwater", type: "wms", url: gsmmaUrl, zIndex: 89 },
+                { name: "初級土壤液化潛勢圖", layerId: "WMS/Geomap_Envi_Soil_liquefatcion_2021", type: "wms", url: gsmmaUrl, zIndex: 88 },
+                { name: "五萬分之一全島無接縫地質圖", layerId: "gm50000", type: "wmts-landslide", url: landslideUrl, zIndex: 87 },
+                { name: "渲染圖", layerId: "MOI_SHADERMAP", type: "wmts-nlsc", url: nlscUrl, zIndex: 86 },
+                { name: "光達6m多向陰影圖", layerId: "Shadw20", type: "wmts-landslide", url: landslideUrl, zIndex: 85 }
+            ];
+
+            overlayConfigs.forEach((config) => {
+                let layer;
+                if (config.type === 'wms') {
+                    layer = L.tileLayer.wms(config.url, {
+                        layers: config.layerId,
+                        format: 'image/png',
+                        transparent: true,
+                        version: '1.1.1', 
+                        opacity: initialOpacity,
+                        attribution: '&copy; 地礦中心',
+                        zIndex: config.zIndex,
+                        crs: L.CRS.EPSG4326 // 強制轉換經緯度範圍發送請求
+                    });
+                } else if (config.type === 'wmts-landslide') {
+                    const wmtsUrl = `${config.url}/${config.layerId}/GoogleMapsCompatible/{z}/{x}/{y}.png`;
+                    layer = L.tileLayer(wmtsUrl, {
+                        opacity: initialOpacity,
+                        attribution: '&copy; 地質雲',
+                        maxZoom: 19,
+                        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+                        zIndex: config.zIndex
+                    });
+                } else if (config.type === 'wmts-nlsc') {
+                    const wmtsUrl = `${config.url}/${config.layerId}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
+                    layer = L.tileLayer(wmtsUrl, {
+                        opacity: initialOpacity,
+                        attribution: '&copy; 國土測繪中心',
+                        maxZoom: 19,
+                        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+                        zIndex: config.zIndex
+                    });
+                }
+                
+                geoLayersData.push({
+                    id: config.layerId,
+                    name: config.name,
+                    layer: layer,
+                    zIndex: config.zIndex,
+                    visible: false // 預設隱藏
+                });
+            });
+
+            // ===========================
+            // 3. 建立自訂的疊加圖層面板
+            // ===========================
+            const GeoLayerPanel = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function (map) {
+                    const div = L.DomUtil.create('div', 'bg-white/95 backdrop-blur shadow-md rounded-md p-3 border border-gray-200');
+                    div.style.width = '300px'; 
+                    L.DomEvent.disableClickPropagation(div);
+                    L.DomEvent.disableScrollPropagation(div);
+
+                    div.innerHTML = `
+                        <div class="font-bold text-gray-800 mb-2 border-b pb-1 flex items-center gap-1">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            疊加圖層控制
+                        </div>
+                        <div id="geo-layer-list" class="flex flex-col gap-2 mb-2 max-h-[50vh] overflow-y-auto pr-2"></div>
+                        <div class="border-t pt-2 mt-2">
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-gray-600 font-medium">疊加圖層透明度</span>
+                                <input type="range" min="0" max="1" step="0.05" value="${initialOpacity}" class="w-24 cursor-pointer" oninput="changeOpacity(this.value)">
+                            </div>
+                        </div>
+                    `;
+                    return div;
+                }
+            });
+            map.addControl(new GeoLayerPanel());
+            renderGeoLayerControl(); // 繪製圖層列表清單
+
+            // 建立標記群組與 GPX 軌跡群組
+            markerGroup = L.featureGroup().addTo(map);
+            gpxLayerGroup = L.featureGroup().addTo(map);
+        }
+
+        // === 渲染自訂疊加圖層控制面板 ===
+        function renderGeoLayerControl() {
+            const container = document.getElementById('geo-layer-list');
+            if (!container) return;
+            container.innerHTML = '';
+
+            // 依照 zIndex 由大到小排序 (視覺上在最上層的排在清單最前面)
+            let sortedLayers = [...geoLayersData].sort((a, b) => b.zIndex - a.zIndex);
+
+            sortedLayers.forEach((item, i) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center justify-between text-sm';
+
+                const leftDiv = document.createElement('label');
+                leftDiv.className = 'flex items-center gap-2 cursor-pointer w-full';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'cursor-pointer w-4 h-4 text-blue-600 rounded border-gray-300';
+                checkbox.checked = item.visible;
+                checkbox.onchange = (e) => toggleGeoLayer(item.id, e.target.checked);
+
+                const labelText = document.createElement('span');
+                labelText.innerText = item.name;
+                labelText.className = item.visible ? 'text-gray-800 font-medium' : 'text-gray-500';
+
+                leftDiv.appendChild(checkbox);
+                leftDiv.appendChild(labelText);
+
+                const rightDiv = document.createElement('div');
+                rightDiv.className = 'flex items-center gap-1 shrink-0';
+
+                const upBtn = document.createElement('button');
+                upBtn.innerHTML = '▲';
+                upBtn.className = `px-1.5 py-0.5 rounded text-xs transition ${i === 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`;
+                upBtn.disabled = i === 0;
+                upBtn.onclick = () => moveGeoLayerUp(item.id);
+
+                const downBtn = document.createElement('button');
+                downBtn.innerHTML = '▼';
+                downBtn.className = `px-1.5 py-0.5 rounded text-xs transition ${i === sortedLayers.length - 1 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`;
+                downBtn.disabled = i === sortedLayers.length - 1;
+                downBtn.onclick = () => moveGeoLayerDown(item.id);
+
+                rightDiv.appendChild(upBtn);
+                rightDiv.appendChild(downBtn);
+
+                div.appendChild(leftDiv);
+                div.appendChild(rightDiv);
+                container.appendChild(div);
+            });
+        }
+
+        // === 切換圖層顯示/隱藏 ===
+        function toggleGeoLayer(id, isVisible) {
+            const item = geoLayersData.find(l => l.id === id);
+            if (!item) return;
+            item.visible = isVisible;
+            if (isVisible) {
+                item.layer.addTo(map);
+            } else {
+                item.layer.remove();
+            }
+            renderGeoLayerControl();
+        }
+
+        // === 圖層上移 (增加 zIndex) ===
+        function moveGeoLayerUp(id) {
+            let sorted = [...geoLayersData].sort((a, b) => b.zIndex - a.zIndex);
+            const idx = sorted.findIndex(l => l.id === id);
+            if (idx > 0) {
+                const current = sorted[idx];
+                const above = sorted[idx - 1]; 
+                
+                const tempZ = current.zIndex;
+                current.zIndex = above.zIndex;
+                above.zIndex = tempZ;
+
+                current.layer.setZIndex(current.zIndex);
+                above.layer.setZIndex(above.zIndex);
+                
+                renderGeoLayerControl(); 
+            }
+        }
+
+        // === 圖層下移 (減少 zIndex) ===
+        function moveGeoLayerDown(id) {
+            let sorted = [...geoLayersData].sort((a, b) => b.zIndex - a.zIndex);
+            const idx = sorted.findIndex(l => l.id === id);
+            if (idx < sorted.length - 1) {
+                const current = sorted[idx];
+                const below = sorted[idx + 1]; 
+                
+                const tempZ = current.zIndex;
+                current.zIndex = below.zIndex;
+                below.zIndex = tempZ;
+
+                current.layer.setZIndex(current.zIndex);
+                below.layer.setZIndex(below.zIndex);
+                
+                renderGeoLayerControl();
+            }
+        }
+
+        // === 改變疊加圖層透明度 ===
+        function changeOpacity(value) {
+            geoLayersData.forEach(item => {
+                item.layer.setOpacity(parseFloat(value));
+            });
+        }
+
+        // === 列印地圖相關功能 ===
+        function updatePrintFrame() {
+            if (!map) return;
+            
+            // 取得目前地圖視角邊界 (WGS84)
+            const bounds = map.getBounds();
+            const nw = bounds.getNorthWest();
+            const ne = bounds.getNorthEast();
+            const sw = bounds.getSouthWest();
+            const se = bounds.getSouthEast();
+
+            // 轉換為 TWD97 (X, Y)
+            const nw97 = proj4("EPSG:4326", "EPSG:3826", [nw.lng, nw.lat]);
+            const ne97 = proj4("EPSG:4326", "EPSG:3826", [ne.lng, ne.lat]);
+            const sw97 = proj4("EPSG:4326", "EPSG:3826", [sw.lng, sw.lat]);
+            const se97 = proj4("EPSG:4326", "EPSG:3826", [se.lng, se.lat]);
+
+            // 寫入畫面四個角落的標籤
+            document.getElementById('print-tl').innerText = `TWD97 X: ${Math.round(nw97[0])}\nTWD97 Y: ${Math.round(nw97[1])}`;
+            document.getElementById('print-tr').innerText = `TWD97 X: ${Math.round(ne97[0])}\nTWD97 Y: ${Math.round(ne97[1])}`;
+            document.getElementById('print-bl').innerText = `TWD97 X: ${Math.round(sw97[0])}\nTWD97 Y: ${Math.round(sw97[1])}`;
+            document.getElementById('print-br').innerText = `TWD97 X: ${Math.round(se97[0])}\nTWD97 Y: ${Math.round(se97[1])}`;
+        }
+
+        function printMap() {
+            updatePrintFrame(); // 觸發計算座標
+            window.print();     // 呼叫瀏覽器原生列印
+        }
+
+        // === 處理 GPX 檔案上傳 ===
+        function handleGPX(files) {
+            if (!files || files.length === 0) return;
+            const file = files[0];
+            showStatus(`正在載入 GPX: ${file.name}...`, 'blue');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(e.target.result, "text/xml");
+                    const trksegs = xmlDoc.getElementsByTagName("trkseg");
+                    
+                    if (trksegs.length === 0) {
+                        showStatus("GPX 檔案中找不到軌跡 (trkseg)。", "red");
+                        return;
+                    }
+
+                    let bounds = L.latLngBounds();
+                    let trackCount = 0;
+                    
+                    for (let i = 0; i < trksegs.length; i++) {
+                        const trkpts = trksegs[i].getElementsByTagName("trkpt");
+                        const latlngs = [];
+                        for (let j = 0; j < trkpts.length; j++) {
+                            const lat = parseFloat(trkpts[j].getAttribute("lat"));
+                            const lon = parseFloat(trkpts[j].getAttribute("lon"));
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                                const latlng = [lat, lon];
+                                latlngs.push(latlng);
+                                bounds.extend(latlng);
+                            }
+                        }
+                        if (latlngs.length > 0) {
+                            L.polyline(latlngs, {color: '#ef4444', weight: 4, opacity: 0.8}).addTo(gpxLayerGroup);
+                            trackCount++;
+                        }
+                    }
+                    
+                    if (trackCount > 0 && bounds.isValid()) {
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                        showStatus(`GPX 軌跡載入成功！`, 'green');
+                    } else {
+                        showStatus("GPX 解析失敗：沒有有效的座標點。", "red");
+                    }
+                } catch (error) {
+                    console.error("GPX 解析錯誤:", error);
+                    showStatus("GPX 解析發生錯誤。", "red");
+                }
+            };
+            reader.readAsText(file);
+            document.getElementById('gpx-input').value = '';
+        }
+
+        // === 處理檔案上傳 ===
+        async function handleFiles(files) {
+            if (!files || files.length === 0) return;
+            
+            showStatus(`正在解析 ${files.length} 張照片...`, 'blue');
+            
+            let successCount = 0;
+            let noGpsCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                try {
+                    const tags = await exifr.parse(file, { gps: true, exif: true, tiff: true });
+                    
+                    if (tags && tags.latitude != null && tags.longitude != null) {
+                        const filename = file.name;
+                        const lat = tags.latitude;
+                        const lon = tags.longitude;
+                        
+                        let direction = "無";
+                        let dirValue = null;
+                        if (tags.GPSImgDirection != null) {
+                            direction = parseFloat(tags.GPSImgDirection).toFixed(1) + "°";
+                            dirValue = parseFloat(tags.GPSImgDirection);
+                        }
+
+                        let photoTime = "未知";
+                        if (tags.DateTimeOriginal) {
+                            photoTime = formatTime(tags.DateTimeOriginal);
+                        } else if (file.lastModified) {
+                            photoTime = formatTime(new Date(file.lastModified));
+                        }
+
+                        const twd97 = proj4("EPSG:4326", "EPSG:3826", [lon, lat]);
+                        const twd97_X = twd97[0];
+                        const twd97_Y = twd97[1];
+
+                        const thumbnailUrl = URL.createObjectURL(file);
+
+                        const dataObj = {
+                            file: file, 
+                            filename: filename,
+                            time: photoTime,
+                            direction: direction,
+                            dirValue: dirValue,
+                            lat: lat,
+                            lon: lon,
+                            twd97_X: twd97_X,
+                            twd97_Y: twd97_Y,
+                            thumbnailUrl: thumbnailUrl
+                        };
+                        
+                        photoDataArray.push(dataObj);
+                        addMarkerToMap(dataObj);
+                        successCount++;
+                    } else {
+                        noGpsCount++;
+                    }
+                } catch (error) {
+                    console.error("解析照片錯誤:", file.name, error);
+                    noGpsCount++;
+                }
+            }
+
+            updateButtons();
+            if (successCount > 0) {
+                map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
+                showStatus(`解析完成！成功載入 ${successCount} 張照片。${noGpsCount > 0 ? ` (略過 ${noGpsCount} 張無座標照片)` : ''}`, 'green');
+            } else {
+                showStatus(`找不到任何包含 GPS 座標的照片。`, 'red');
+            }
+            
+            document.getElementById('file-input').value = '';
+        }
+
+        // === 在地圖上新增標記 ===
+        function addMarkerToMap(data) {
+            let iconHtml = '';
+            
+            if (data.dirValue !== null) {
+                iconHtml = `
+                    <div style="transform: rotate(${data.dirValue}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="rgba(239, 68, 68, 0.9)" stroke="white" stroke-width="2" width="28" height="28" style="filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));">
+                            <path d="M12 2 L20 20 L12 16 L4 20 Z" />
+                        </svg>
+                    </div>
+                `;
+            } else {
+                iconHtml = `
+                    <div style="width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;">
+                        <div style="width: 14px; height: 14px; background-color: rgba(37, 99, 235, 0.9); border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.4);"></div>
+                    </div>
+                `;
+            }
+
+            const customIcon = L.divIcon({
+                className: 'marker-icon',
+                html: iconHtml,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+                popupAnchor: [0, -16]
+            });
+
+            const popupContent = `
+                <div class="text-sm">
+                    <h3 class="font-bold text-gray-800 mb-2 border-b pb-1">📸 照片資訊</h3>
+                    <div class="mb-3 flex justify-center">
+                        <img src="${data.thumbnailUrl}" alt="照片縮圖" class="max-h-40 rounded shadow-sm border border-gray-200 object-contain">
+                    </div>
+                    <table class="table-auto w-full text-left border-collapse">
+                        <tbody>
+                            <tr><th>檔名</th><td>${data.filename}</td></tr>
+                            <tr><th>拍攝時間</th><td>${data.time}</td></tr>
+                            <tr><th>拍攝方位</th><td>${data.direction}</td></tr>
+                            <tr><th>WGS84 經度</th><td>${data.lon.toFixed(6)}°</td></tr>
+                            <tr><th>WGS84 緯度</th><td>${data.lat.toFixed(6)}°</td></tr>
+                            <tr><th>TWD97 X</th><td>${data.twd97_X.toFixed(2)}</td></tr>
+                            <tr><th>TWD97 Y</th><td>${data.twd97_Y.toFixed(2)}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const marker = L.marker([data.lat, data.lon], { icon: customIcon }).bindPopup(popupContent);
+            markerGroup.addLayer(marker);
+        }
+
+        // === 格式化時間輔助函數 ===
+        function formatTime(dateInput) {
+            let d = new Date(dateInput);
+            if (isNaN(d.getTime())) return String(dateInput); 
+            
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        // === 介面狀態管理 ===
+        function showStatus(msg, colorType) {
+            const bar = document.getElementById('status-bar');
+            bar.innerText = msg;
+            bar.className = `text-sm px-4 py-2 flex-none border-b`;
+            
+            if (colorType === 'blue') bar.classList.add('bg-blue-50', 'text-blue-800', 'border-blue-200');
+            if (colorType === 'green') bar.classList.add('bg-green-50', 'text-green-800', 'border-green-200');
+            if (colorType === 'red') bar.classList.add('bg-red-50', 'text-red-800', 'border-red-200');
+            
+            bar.style.display = 'block';
+            
+            if (colorType !== 'blue') {
+                setTimeout(() => {
+                    bar.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        function updateButtons() {
+            const hasData = photoDataArray.length > 0;
+            document.getElementById('btn-kmz').disabled = !hasData;
+            document.getElementById('btn-shp').disabled = !hasData;
+            document.getElementById('btn-csv').disabled = !hasData;
+            
+            if(hasData){
+                document.getElementById('btn-kmz').classList.replace('opacity-50', 'hover:bg-green-700');
+                document.getElementById('btn-shp').classList.replace('opacity-50', 'hover:bg-purple-700');
+                document.getElementById('btn-csv').classList.replace('opacity-50', 'hover:bg-teal-700');
+            }
+        }
+
+        function clearMap() {
+            photoDataArray.forEach(data => {
+                if (data.thumbnailUrl) {
+                    URL.revokeObjectURL(data.thumbnailUrl);
+                }
+            });
+
+            markerGroup.clearLayers();
+            gpxLayerGroup.clearLayers(); 
+            photoDataArray = [];
+            updateButtons();
+            document.getElementById('status-bar').style.display = 'none';
+            map.setView([23.6978, 120.9605], 7);
+        }
+
+        // === 產生照片縮圖 Blob ===
+        function generateThumbnailBlob(file, maxSize = 800) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                
+                img.onload = () => {
+                    URL.revokeObjectURL(url);
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > maxSize) {
+                            height *= maxSize / width;
+                            width = maxSize;
+                        }
+                    } else {
+                        if (height > maxSize) {
+                            width *= maxSize / height;
+                            height = maxSize;
+                        }
+                    }
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
+                };
+                
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(null);
+                };
+                
+                img.src = url;
+            });
+        }
+
+        // === 匯出 KMZ 功能 ===
+        async function exportKMZ() {
+            if (photoDataArray.length === 0) return;
+            
+            showStatus('正在壓縮圖片並產生 KMZ 檔案，請稍候...', 'blue');
+            
+            try {
+                const zip = new JSZip();
+                const imgFolder = zip.folder("images"); 
+
+                let kmlString = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>照片地圖點位匯出</name>
+    <description>由相片 EXIF 產生之地理點位</description>`;
+
+                for (let i = 0; i < photoDataArray.length; i++) {
+                    const item = photoDataArray[i];
+                    const thumbnailBlob = await generateThumbnailBlob(item.file, 800);
+                    const safeFilename = `photo_${i}.jpg`;
+                    
+                    let imageTag = '';
+                    if (thumbnailBlob) {
+                        imgFolder.file(safeFilename, thumbnailBlob);
+                        imageTag = `<div style="margin-bottom: 10px; text-align: center;"><img src="images/${safeFilename}" style="max-width: 100%; max-height: 250px;" /></div>`;
+                    }
+
+                    const description = `
+                        <![CDATA[
+                            ${imageTag}
+                            <table border="1" style="border-collapse: collapse; width: 100%; font-size: 13px;">
+                                <tr><th style="text-align: left; padding: 4px;">檔名</th><td style="padding: 4px;">${item.filename}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">時間</th><td style="padding: 4px;">${item.time}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">方位</th><td style="padding: 4px;">${item.direction}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">經度</th><td style="padding: 4px;">${item.lon.toFixed(6)}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">緯度</th><td style="padding: 4px;">${item.lat.toFixed(6)}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">TWD97 X</th><td style="padding: 4px;">${item.twd97_X.toFixed(2)}</td></tr>
+                                <tr><th style="text-align: left; padding: 4px;">TWD97 Y</th><td style="padding: 4px;">${item.twd97_Y.toFixed(2)}</td></tr>
+                            </table>
+                        ]]>
+                    `;
+
+                    kmlString += `
+    <Placemark>
+      <name>${item.filename}</name>
+      <description>${description}</description>
+      <Point>
+        <coordinates>${item.lon},${item.lat},0</coordinates>
+      </Point>
+    </Placemark>`;
+                }
+
+                kmlString += `
+  </Document>
+</kml>`;
+
+                zip.file("doc.kml", kmlString);
+                const content = await zip.generateAsync({type: "blob", compression: "STORE"});
+                
+                downloadFile(content, 'Photos_Location.kmz', 'application/vnd.google-earth.kmz');
+                showStatus('KMZ 匯出成功！', 'green');
+                
+            } catch (error) {
+                console.error("KMZ 匯出錯誤", error);
+                showStatus('KMZ 匯出發生錯誤', 'red');
+            }
+        }
+
+        // === 匯出 SHP 功能 ===
+        async function exportSHP() {
+            if (photoDataArray.length === 0) return;
+
+            const geojsonFeatures = photoDataArray.map(item => {
+                return {
+                    type: "Feature",
+                    geometry: {
+                        type: "Point",
+                        coordinates: [item.lon, item.lat]
+                    },
+                    properties: {
+                        Filename: item.filename,
+                        Time: item.time,
+                        Azimuth: item.dirValue !== null ? item.dirValue : -1,
+                        WGS_Lon: item.lon,
+                        WGS_Lat: item.lat,
+                        T97_X: parseFloat(item.twd97_X.toFixed(2)),
+                        T97_Y: parseFloat(item.twd97_Y.toFixed(2))
+                    }
+                };
+            });
+
+            const geojsonData = {
+                type: "FeatureCollection",
+                features: geojsonFeatures
+            };
+
+            const options = {
+                folder: 'Photo_Locations',
+                types: {
+                    point: 'photos_pts'
+                }
+            };
+
+            showStatus('正在產生 SHP 壓縮檔，請稍候...', 'blue');
+            
+            try {
+                const zipData = await shpwrite.zip(geojsonData, options);
+                
+                let blob;
+                if (typeof zipData === 'string') {
+                    const byteCharacters = atob(zipData);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    blob = new Blob([byteArray], { type: 'application/zip' });
+                } else {
+                    blob = new Blob([zipData], { type: 'application/zip' });
+                }
+                
+                downloadFile(blob, 'Photo_Locations.zip', 'application/zip');
+                showStatus('SHP 匯出成功！', 'green');
+            } catch(e) {
+                console.error("SHP 匯出錯誤", e);
+                showStatus('SHP 匯出失敗', 'red');
+            }
+        }
+
+        // === 匯出 CSV 功能 ===
+        function exportCSV() {
+            if (photoDataArray.length === 0) return;
+
+            let csvContent = '\uFEFF'; 
+            csvContent += "檔名,拍攝時間,拍攝方位,WGS84_經度,WGS84_緯度,TWD97_X,TWD97_Y\n";
+
+            photoDataArray.forEach(item => {
+                const filename = `"${item.filename.replace(/"/g, '""')}"`;
+                const time = `"${item.time}"`;
+                const direction = item.dirValue !== null ? item.dirValue : "";
+                const lon = item.lon.toFixed(6);
+                const lat = item.lat.toFixed(6);
+                const t97x = item.twd97_X.toFixed(2);
+                const t97y = item.twd97_Y.toFixed(2);
+
+                csvContent += `${filename},${time},${direction},${lon},${lat},${t97x},${t97y}\n`;
+            });
+
+            downloadFile(csvContent, 'Photos_Location.csv', 'text/csv;charset=utf-8;');
+        }
+
+        // === 產生實體檔案下載 ===
+        function downloadFile(content, filename, mimeType) {
+            const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>

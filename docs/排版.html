@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鐵塔簡易診斷排版系統</title>
+    <!-- 引入 Tailwind CSS 進行排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 html2canvas 用於輸出圖片 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        /* 隱藏捲軸但允許滾動 */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* 解決 html2canvas contenteditable 文字偏移問題 */
+        .label-box {
+            line-height: 28px; /* 對應 h-7 讓文字垂直置中 */
+            text-align: center;
+            display: block; /* 取代 flex 避免截圖跑位 */
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8 font-sans">
+
+    <div class="max-w-[1400px] mx-auto grid grid-cols-1 xl:grid-cols-12 gap-8">
+        
+        <!-- 左側控制面板 -->
+        <div class="xl:col-span-4 space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+                <h1 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    鐵塔照片排版系統
+                </h1>
+
+                <!-- 1. 上傳區 -->
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">1. 上傳照片 (最多8張)</label>
+                    <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <svg class="w-8 h-8 text-gray-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                            <p class="text-sm text-gray-500"><span class="font-semibold">點擊上傳</span> 或拖曳檔案至此</p>
+                        </div>
+                        <input type="file" id="file-upload" multiple accept="image/*" class="hidden" />
+                    </label>
+                </div>
+
+                <!-- 2. 指北針與操作提示 -->
+                <div class="mb-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">指北針旋轉角度 (度)</label>
+                        <div class="flex items-center space-x-2">
+                            <input type="range" id="angle-range" min="0" max="360" value="0" class="flex-1" />
+                            <input type="number" id="angle-input" value="0" class="w-20 px-2 py-1 border border-gray-300 rounded text-center focus:outline-none focus:border-blue-500" />
+                        </div>
+                    </div>
+                    
+                    <div class="bg-blue-50 p-3 rounded-md text-sm text-blue-800 border border-blue-200">
+                        <p class="font-bold mb-1">操作提示：</p>
+                        <ul class="list-disc pl-5 space-y-1">
+                            <li><strong>左側縮圖區：</strong>可拖曳縮圖來交換照片順序。點擊藍色「↻」可旋轉 90 度。</li>
+                            <li><strong>右側排版區：</strong>在照片上使用<strong>滑鼠滾輪</strong>可縮放大小，按住<strong>左鍵拖曳</strong>可調整位置。</li>
+                            <li><strong>標籤修改：</strong>直接點擊排版區的標籤即可修改文字。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 3. 排序縮圖區 -->
+                <div class="mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">2. 調整排序 (拖曳調整)</label>
+                    <div class="grid grid-cols-4 gap-2" id="sort-container">
+                        <!-- 透過 JS 動態產生 8 個縮圖槽 -->
+                    </div>
+                </div>
+
+                <!-- 匯出按鈕 -->
+                <button id="export-btn" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow flex items-center justify-center transition">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    列印圖片
+                </button>
+            </div>
+        </div>
+
+        <!-- 右側預覽面板 -->
+        <div class="xl:col-span-8 flex flex-col items-center overflow-x-auto pb-8 hide-scrollbar">
+            <p class="text-gray-500 mb-2 font-medium w-[1000px]">排版預覽區 (列印輸出範圍)</p>
+            
+            <!-- html2canvas 截圖區域：調整寬度與留白比例 (左右留白縮減為40px) -->
+            <div id="export-area" class="bg-white" style="width: 1000px; padding: 60px 40px; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+                
+                <!-- 核心排版網格: 2x2 四個象限，中間有間隔 -->
+                <div class="grid grid-cols-2 grid-rows-2 gap-8 relative">
+                    
+                    <!-- 左上象限 (TL) : 預設 a腳 -->
+                    <div class="border-[0.75pt] border-black p-[0.75pt] bg-black flex gap-[0.75pt] relative">
+                        <div contenteditable="true" class="absolute top-0 left-0 bg-white border-r-[0.75pt] border-b-[0.75pt] border-black w-10 h-7 z-10 outline-none label-box text-sm font-bold">a腳</div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="0"></div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="1"></div>
+                    </div>
+
+                    <!-- 右上象限 (TR) : 預設 b腳 -->
+                    <div class="border-[0.75pt] border-black p-[0.75pt] bg-black flex gap-[0.75pt] relative">
+                        <div contenteditable="true" class="absolute top-0 left-0 bg-white border-r-[0.75pt] border-b-[0.75pt] border-black w-10 h-7 z-10 outline-none label-box text-sm font-bold">b腳</div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="2"></div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="3"></div>
+                    </div>
+
+                    <!-- 左下象限 (BL) : 預設 d腳 -->
+                    <div class="border-[0.75pt] border-black p-[0.75pt] bg-black flex gap-[0.75pt] relative">
+                        <div contenteditable="true" class="absolute top-0 left-0 bg-white border-r-[0.75pt] border-b-[0.75pt] border-black w-10 h-7 z-10 outline-none label-box text-sm font-bold">d腳</div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="4"></div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="5"></div>
+                    </div>
+
+                    <!-- 右下象限 (BR) : 預設 c腳 -->
+                    <div class="border-[0.75pt] border-black p-[0.75pt] bg-black flex gap-[0.75pt] relative">
+                        <div contenteditable="true" class="absolute top-0 left-0 bg-white border-r-[0.75pt] border-b-[0.75pt] border-black w-10 h-7 z-10 outline-none label-box text-sm font-bold">c腳</div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="6"></div>
+                        <div class="photo-slot w-1/2 aspect-[3/4] bg-white overflow-hidden relative" data-index="7"></div>
+                    </div>
+
+                    <!-- 中央指北針 (縮小尺寸) -->
+                    <div id="compass-container" class="absolute top-1/2 left-1/2 w-10 h-10 bg-white rounded-full flex flex-col items-center justify-center border-[0.75pt] border-black z-20 pointer-events-none" style="transform: translate(-50%, -50%) rotate(0deg);">
+                        <div class="text-red-600 font-bold text-[10px] leading-none -mt-0.5">北</div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" class="mt-0.5">
+                            <path d="M12 2L16 12H8L12 2Z" fill="#dc2626" />
+                            <path d="M12 22L16 12H8L12 22Z" fill="#000000" />
+                        </svg>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 存放 8 張圖片的狀態 (來源, X位移, Y位移, 縮放比例, 旋轉角度)
+        let imageStates = Array(8).fill().map(() => ({ src: null, x: 0, y: 0, scale: 1, rotation: 0 }));
+        let draggedSortIndex = null;
+
+        // 初始化縮圖區 HTML
+        const sortContainer = document.getElementById('sort-container');
+        for (let i = 0; i < 8; i++) {
+            const slot = document.createElement('div');
+            slot.className = 'sort-slot relative aspect-[3/4] bg-gray-200 border-2 border-transparent hover:border-blue-500 rounded overflow-hidden cursor-move transition-colors';
+            slot.draggable = true;
+            slot.dataset.index = i;
+            sortContainer.appendChild(slot);
+        }
+
+        // 重新渲染畫面 (當上傳、排序或刪除時呼叫)
+        function renderAll() {
+            document.querySelectorAll('.sort-slot').forEach(slot => {
+                let i = parseInt(slot.dataset.index);
+                let state = imageStates[i];
+                if (state.src) {
+                    slot.innerHTML = `
+                        <div class="w-full h-full flex items-center justify-center bg-gray-800 p-1">
+                            <img src="${state.src}" class="pointer-events-none" style="max-width: 100%; max-height: 100%; object-fit: contain; transform: rotate(${state.rotation}deg); transition: transform 0.2s;" />
+                        </div>
+                        <div class="absolute top-1 right-1 flex flex-col gap-1">
+                            <button class="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow z-10" onmousedown="event.stopPropagation()" onclick="removeImage(event, ${i})" title="移除">✕</button>
+                            <button class="bg-blue-500 hover:bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs shadow z-10 font-bold pb-0.5" onmousedown="event.stopPropagation()" onclick="rotateImage(event, ${i})" title="旋轉90度">↻</button>
+                        </div>
+                    `;
+                } else {
+                    slot.innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center text-gray-400 font-bold bg-gray-100">${i + 1}</div>`;
+                }
+            });
+
+            document.querySelectorAll('.photo-slot').forEach(slot => {
+                let i = parseInt(slot.dataset.index);
+                let state = imageStates[i];
+                if (state.src) {
+                    // 使用 wrapper 進行平移和縮放，使用 img 進行旋轉與比例包含(object-contain)
+                    slot.innerHTML = `
+                        <div class="img-wrapper w-full h-full flex items-center justify-center bg-white" style="transform-origin: center; transform: translate(${state.x}px, ${state.y}px) scale(${state.scale}); pointer-events: none;">
+                            <img src="${state.src}" style="max-width: 100%; max-height: 100%; object-fit: contain; transform: rotate(${state.rotation}deg); transition: transform 0.2s;" />
+                        </div>
+                    `;
+                    slot.style.cursor = 'grab';
+                } else {
+                    slot.innerHTML = `<div class="w-full h-full flex items-center justify-center text-gray-300 font-bold bg-gray-50">照片 ${i + 1}</div>`;
+                    slot.style.cursor = 'default';
+                }
+            });
+        }
+
+        // 刪除照片
+        window.removeImage = function(event, index) {
+            if (event) event.stopPropagation();
+            imageStates[index] = { src: null, x: 0, y: 0, scale: 1, rotation: 0 };
+            renderAll();
+        }
+
+        // 旋轉照片
+        window.rotateImage = function(event, index) {
+            if (event) event.stopPropagation();
+            imageStates[index].rotation += 90;
+            renderAll();
+        }
+
+        // 上傳照片處理
+        document.getElementById('file-upload').addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+            let fileIndex = 0;
+            for (let i = 0; i < 8; i++) {
+                if (!imageStates[i].src && fileIndex < files.length) {
+                    imageStates[i] = {
+                        src: URL.createObjectURL(files[fileIndex]),
+                        x: 0, y: 0, scale: 1, rotation: 0
+                    };
+                    fileIndex++;
+                }
+            }
+            this.value = ''; 
+            renderAll();
+        });
+
+        // ================= 縮圖區拖曳排序邏輯 =================
+        document.querySelectorAll('.sort-slot').forEach(slot => {
+            slot.addEventListener('dragstart', function(e) {
+                draggedSortIndex = parseInt(this.dataset.index);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => this.style.opacity = '0.5', 0);
+            });
+            slot.addEventListener('dragend', function() {
+                this.style.opacity = '1';
+                draggedSortIndex = null;
+            });
+            slot.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                this.classList.add('border-blue-600');
+            });
+            slot.addEventListener('dragleave', function() {
+                this.classList.remove('border-blue-600');
+            });
+            slot.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.classList.remove('border-blue-600');
+                let targetIndex = parseInt(this.dataset.index);
+                if (draggedSortIndex !== null && draggedSortIndex !== targetIndex) {
+                    // 交換圖片
+                    let temp = imageStates[draggedSortIndex];
+                    imageStates[draggedSortIndex] = imageStates[targetIndex];
+                    imageStates[targetIndex] = temp;
+                    renderAll();
+                }
+            });
+        });
+
+        // ================= 右側黑框內平移與縮放邏輯 =================
+        let isPanning = false;
+        let startX, startY;
+        let initialX, initialY;
+        let currentPanIndex = null;
+
+        document.querySelectorAll('.photo-slot').forEach(slot => {
+            // 滑鼠滾輪縮放 (Zoom)
+            slot.addEventListener('wheel', (e) => {
+                e.preventDefault(); // 防止網頁滾動
+                let idx = slot.dataset.index;
+                if (!imageStates[idx].src) return;
+
+                // 計算縮放量 (向上滾放大，向下滾縮小)
+                let zoomAmount = -e.deltaY * 0.002; 
+                let newScale = imageStates[idx].scale + zoomAmount;
+                // 限制縮放比例在 0.2 倍到 5 倍之間
+                imageStates[idx].scale = Math.max(0.2, Math.min(newScale, 5));
+
+                // 直接更新 DOM 以獲得最高效能 (不呼叫 renderAll)
+                const wrapper = slot.querySelector('.img-wrapper');
+                if (wrapper) {
+                    wrapper.style.transform = `translate(${imageStates[idx].x}px, ${imageStates[idx].y}px) scale(${imageStates[idx].scale})`;
+                }
+            });
+
+            // 滑鼠按下開始平移 (Pan)
+            slot.addEventListener('mousedown', (e) => {
+                let idx = slot.dataset.index;
+                if (!imageStates[idx].src) return;
+                
+                isPanning = true;
+                currentPanIndex = idx;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialX = imageStates[idx].x;
+                initialY = imageStates[idx].y;
+                slot.style.cursor = 'grabbing';
+            });
+        });
+
+        // 監聽全域滑鼠移動與放開
+        window.addEventListener('mousemove', (e) => {
+            if (!isPanning || currentPanIndex === null) return;
+            
+            // 計算位移量
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+            imageStates[currentPanIndex].x = initialX + dx;
+            imageStates[currentPanIndex].y = initialY + dy;
+
+            // 即時更新畫面
+            const wrapper = document.querySelector(`.photo-slot[data-index="${currentPanIndex}"] .img-wrapper`);
+            if (wrapper) {
+                wrapper.style.transform = `translate(${imageStates[currentPanIndex].x}px, ${imageStates[currentPanIndex].y}px) scale(${imageStates[currentPanIndex].scale})`;
+            }
+        });
+
+        const stopPanning = () => {
+            if (isPanning && currentPanIndex !== null) {
+                const slot = document.querySelector(`.photo-slot[data-index="${currentPanIndex}"]`);
+                if(slot) slot.style.cursor = 'grab';
+            }
+            isPanning = false;
+            currentPanIndex = null;
+        };
+
+        window.addEventListener('mouseup', stopPanning);
+        window.addEventListener('mouseleave', stopPanning);
+
+        // ================= 指北針角度連動 =================
+        const angleInput = document.getElementById('angle-input');
+        const angleRange = document.getElementById('angle-range');
+        const compassContainer = document.getElementById('compass-container');
+
+        function updateAngle(val) {
+            angleInput.value = val;
+            angleRange.value = val;
+            compassContainer.style.transform = `translate(-50%, -50%) rotate(${val}deg)`;
+        }
+
+        angleInput.addEventListener('input', (e) => updateAngle(e.target.value));
+        angleRange.addEventListener('input', (e) => updateAngle(e.target.value));
+
+        // ================= 匯出圖片 =================
+        document.getElementById('export-btn').addEventListener('click', async () => {
+            if (typeof html2canvas === 'undefined') {
+                alert('圖片處理套件仍在載入中，請稍候再試。');
+                return;
+            }
+            const exportArea = document.getElementById('export-area');
+            const btn = document.getElementById('export-btn');
+            const originalText = btn.innerHTML;
+            
+            try {
+                btn.innerHTML = '匯出中，請稍候...';
+                btn.disabled = true;
+
+                // 為了避免 contenteditable 在截圖時出現閃爍游標，暫時移除 focus
+                document.activeElement.blur(); 
+
+                const canvas = await html2canvas(exportArea, {
+                    scale: 2, // 提高畫質
+                    useCORS: true,
+                    backgroundColor: '#ffffff'
+                });
+                
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                const link = document.createElement('a');
+                link.download = '鐵塔診斷排版圖.jpg';
+                link.href = dataUrl;
+                link.click();
+            } catch (error) {
+                console.error("匯出失敗:", error);
+                alert("圖片匯出失敗！");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        });
+
+        // 初始渲染
+        renderAll();
+    </script>
+</body>
+</html>

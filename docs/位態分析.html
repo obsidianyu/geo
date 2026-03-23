@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>岩石力學赤平投影空間分析系統</title>
+  
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 載入 React 與 ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- 載入 Babel 用於在瀏覽器內即時編譯 JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- 列印專用樣式 -->
+  <style>
+    @media print {
+      body { background: white; }
+      .print\:hidden { display: none !important; }
+      .print\:block { display: block !important; }
+      .print\:w-full { width: 100% !important; }
+      .print\:p-0 { padding: 0 !important; }
+      .print\:border-none { border: none !important; }
+      .print\:shadow-none { box-shadow: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-slate-800 font-sans">
+  
+  <!-- React 應用程式的掛載點 -->
+  <div id="root"></div>
+
+  <!-- React 程式碼區塊 -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 圖示元件 ---
+    const LocateFixed = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="5"></line><line x1="12" y1="19" x2="12" y2="22"></line><line x1="2" y1="12" x2="5" y2="12"></line><line x1="19" y1="12" x2="22" y2="12"></line><circle cx="12" cy="12" r="7"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+    );
+    const Printer = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+    );
+    const Mountain = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"></path></svg>
+    );
+    const Activity = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+    );
+    const Train = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="16" rx="2"></rect><path d="M4 11h16"></path><path d="M12 3v8"></path><path d="m8 19-2 3"></path><path d="m16 19 2 3"></path><path d="M2 14h20"></path></svg>
+    );
+    const Info = ({ className }) => (
+      <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+    );
+
+    // --- 地質數學與幾何運算核心 ---
+
+    const parseAttitude = (str) => {
+      const cleaned = str.toUpperCase().replace(/[°\s]/g, '');
+      const match = cleaned.match(/([NS])(\d+)([EW])\/(\d+)([NESW]{1,2})/);
+      if (!match) return null;
+
+      const dir1 = match[1];
+      const angle1 = parseInt(match[2], 10);
+      const dir2 = match[3];
+      const dip = parseInt(match[4], 10);
+      const dipDirStr = match[5];
+
+      let strike = 0;
+      if (dir1 === 'N' && dir2 === 'E') strike = angle1;
+      if (dir1 === 'N' && dir2 === 'W') strike = 360 - angle1;
+      if (dir1 === 'S' && dir2 === 'E') strike = 180 - angle1;
+      if (dir1 === 'S' && dir2 === 'W') strike = 180 + angle1;
+
+      const dd1 = (strike + 90) % 360;
+      const dd2 = (strike + 270) % 360;
+
+      const dirMap = { 'N': 0, 'NE': 45, 'E': 90, 'SE': 135, 'S': 180, 'SW': 225, 'W': 270, 'NW': 315 };
+      const targetAngle = dirMap[dipDirStr] !== undefined ? dirMap[dipDirStr] : 0;
+
+      const diff1 = Math.min((dd1 - targetAngle + 360) % 360, (targetAngle - dd1 + 360) % 360);
+      const diff2 = Math.min((dd2 - targetAngle + 360) % 360, (targetAngle - dd2 + 360) % 360);
+
+      const dipDirection = diff1 < diff2 ? dd1 : dd2;
+
+      const poleTrend = (dipDirection + 180) % 360;
+      const polePlunge = 90 - dip;
+
+      return { strike, dip, dipDirection, poleTrend, polePlunge, original: str };
+    };
+
+    const toCartesian = (trend, plunge) => {
+      const tRad = trend * Math.PI / 180;
+      const pRad = plunge * Math.PI / 180;
+      return {
+        x: Math.cos(pRad) * Math.sin(tRad),
+        y: Math.cos(pRad) * Math.cos(tRad),
+        z: -Math.sin(pRad)
+      };
+    };
+
+    const toSpherical = (x, y, z) => {
+      if (z > 0) { x = -x; y = -y; z = -z; } 
+      const plunge = Math.asin(Math.abs(z)) * 180 / Math.PI;
+      let trend = Math.atan2(x, y) * 180 / Math.PI;
+      if (trend < 0) trend += 360;
+      return { trend, plunge };
+    };
+
+    const crossProduct = (v1, v2) => {
+      return {
+        x: v1.y * v2.z - v1.z * v2.y,
+        y: v1.z * v2.x - v1.x * v2.z,
+        z: v1.x * v2.y - v1.y * v2.x
+      };
+    };
+
+    const projectEqualArea = (trend, plunge, radius) => {
+      const tRad = trend * Math.PI / 180;
+      const pRad = plunge * Math.PI / 180;
+      const r = radius * Math.SQRT2 * Math.sin((Math.PI / 2 - pRad) / 2);
+      return { x: r * Math.sin(tRad), y: -r * Math.cos(tRad) };
+    };
+
+    // --- 繪圖輔助函數 ---
+
+    const drawStereonetBase = (ctx, cx, cy, radius) => {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+      ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#334155';
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('N', cx, cy - radius - 5);
+      ctx.textBaseline = 'top';
+      ctx.fillText('S', cx, cy + radius + 5);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('W', cx - radius - 5, cy);
+      ctx.textAlign = 'left';
+      ctx.fillText('E', cx + radius + 5, cy);
+    };
+
+    const drawGreatCircle = (ctx, cx, cy, radius, dipDirection, dip, color) => {
+      ctx.beginPath();
+      for (let i = 0; i <= 180; i++) {
+        const trend = (dipDirection - 90 + i) % 360;
+        const angleFromStrike = i * Math.PI / 180;
+        const dipRad = dip * Math.PI / 180;
+        const plungeRad = Math.atan(Math.tan(dipRad) * Math.sin(angleFromStrike));
+        const plunge = plungeRad * 180 / Math.PI;
+        
+        const pt = projectEqualArea(trend, plunge, radius);
+        if (i === 0) ctx.moveTo(cx + pt.x, cy + pt.y);
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    const drawPoint = (ctx, cx, cy, radius, trend, plunge, color, label) => {
+      const pt = projectEqualArea(trend, plunge, radius);
+      ctx.beginPath();
+      ctx.arc(cx + pt.x, cy + pt.y, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+      
+      if (label) {
+        ctx.fillStyle = '#1e293b';
+        ctx.font = '12px Arial';
+        ctx.fillText(label, cx + pt.x + 8, cy + pt.y + 8);
+      }
+    };
+
+    const drawFrictionCircle = (ctx, cx, cy, radius, frictionAngle) => {
+      const r = radius * Math.SQRT2 * Math.sin((frictionAngle * Math.PI / 180) / 2);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = '#ef4444'; 
+      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+
+    // 繪製等密度光暈圈 (Small Circle on Stereonet)
+    const drawDensityCone = (ctx, cx, cy, radius, axisTrend, axisPlunge, coneAngle, color) => {
+      if (coneAngle < 0.5) return;
+      const tRad = axisTrend * Math.PI / 180;
+      const pRad = axisPlunge * Math.PI / 180;
+      const cRad = coneAngle * Math.PI / 180;
+
+      const V = { x: Math.cos(pRad) * Math.sin(tRad), y: Math.cos(pRad) * Math.cos(tRad), z: -Math.sin(pRad) };
+      let U1 = { x: V.y, y: -V.x, z: 0 };
+      let len = Math.sqrt(U1.x*U1.x + U1.y*U1.y);
+      if (len < 0.001) U1 = { x: 1, y: 0, z: 0 };
+      else { U1.x /= len; U1.y /= len; }
+      const U2 = crossProduct(V, U1);
+
+      // 下半球部分
+      ctx.beginPath();
+      let first = true;
+      for (let phi = 0; phi <= 360; phi += 2) {
+        const phiRad = phi * Math.PI / 180;
+        let px = V.x * Math.cos(cRad) + U1.x * Math.sin(cRad) * Math.cos(phiRad) + U2.x * Math.sin(cRad) * Math.sin(phiRad);
+        let py = V.y * Math.cos(cRad) + U1.y * Math.sin(cRad) * Math.cos(phiRad) + U2.y * Math.sin(cRad) * Math.sin(phiRad);
+        let pz = V.z * Math.cos(cRad) + U1.z * Math.sin(cRad) * Math.cos(phiRad) + U2.z * Math.sin(cRad) * Math.sin(phiRad);
+
+        if (pz > 0) continue; 
+        const pt = projectEqualArea(toSpherical(px, py, pz).trend, toSpherical(px, py, pz).plunge, radius);
+        if(first) { ctx.moveTo(cx + pt.x, cy + pt.y); first = false; }
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      // 上半球部分 (投影至對側下半球)
+      ctx.beginPath();
+      first = true;
+      for (let phi = 0; phi <= 360; phi += 2) {
+        const phiRad = phi * Math.PI / 180;
+        let px = V.x * Math.cos(cRad) + U1.x * Math.sin(cRad) * Math.cos(phiRad) + U2.x * Math.sin(cRad) * Math.sin(phiRad);
+        let py = V.y * Math.cos(cRad) + U1.y * Math.sin(cRad) * Math.cos(phiRad) + U2.y * Math.sin(cRad) * Math.sin(phiRad);
+        let pz = V.z * Math.cos(cRad) + U1.z * Math.sin(cRad) * Math.cos(phiRad) + U2.z * Math.sin(cRad) * Math.sin(phiRad);
+
+        if (pz <= 0) continue; 
+        const pt = projectEqualArea(toSpherical(-px, -py, -pz).trend, toSpherical(-px, -py, -pz).plunge, radius);
+        if(first) { ctx.moveTo(cx + pt.x, cy + pt.y); first = false; }
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      if(!first) { ctx.fillStyle = color; ctx.fill(); }
+    };
+
+    // --- 繪製不穩定區域 (Kinematic Zones) ---
+
+    // 平面破壞區
+    const drawPlanarZone = (ctx, cx, cy, radius, slopeDir, slopeDip, friction) => {
+      if (slopeDip <= friction) return;
+      ctx.beginPath();
+      // 外弧線：受限於坡角出露條件 (plunge = 90 - slopeDip)
+      for (let i = -20; i <= 20; i++) {
+        let t = (slopeDir + i + 360) % 360;
+        let pt = projectEqualArea(t, 90 - slopeDip, radius);
+        if (i === -20) ctx.moveTo(cx + pt.x, cy + pt.y);
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      // 內弧線：受限於摩擦角 (plunge = 90 - friction)
+      for (let i = 20; i >= -20; i--) {
+        let t = (slopeDir + i + 360) % 360;
+        let pt = projectEqualArea(t, 90 - friction, radius);
+        ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)'; // 亮紅色透明區塊
+      ctx.fill();
+    };
+
+    // 傾覆破壞區
+    const drawTopplingZone = (ctx, cx, cy, radius, slopeDir, slopeDip, friction) => {
+      let maxPlunge = slopeDip - friction;
+      if (maxPlunge <= 0) return;
+      ctx.beginPath();
+      let centerT = (slopeDir + 180) % 360;
+      // 外緣：赤道原周 (plunge = 0)
+      for (let i = -30; i <= 30; i++) {
+        let t = (centerT + i + 360) % 360;
+        let pt = projectEqualArea(t, 0, radius);
+        if (i === -30) ctx.moveTo(cx + pt.x, cy + pt.y);
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      // 內緣：受限於重心滑動條件 (plunge = slopeDip - friction)
+      for (let i = 30; i >= -30; i--) {
+        let t = (centerT + i + 360) % 360;
+        let pt = projectEqualArea(t, maxPlunge, radius);
+        ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(234, 179, 8, 0.3)'; // 黃色透明區塊
+      ctx.fill();
+    };
+
+    // 岩楔破壞區
+    const drawWedgeZone = (ctx, cx, cy, radius, slopeDir, slopeDip, friction) => {
+      if (slopeDip <= friction) return;
+      let cosDelta = Math.tan(friction * Math.PI / 180) / Math.tan(slopeDip * Math.PI / 180);
+      if (cosDelta > 1 || cosDelta < -1) return;
+      let delta = Math.acos(cosDelta) * 180 / Math.PI; // 求取有效區間夾角
+
+      ctx.beginPath();
+      // 內緣：摩擦圓弧線
+      for (let i = -delta; i <= delta; i += 1) {
+        let t = (slopeDir + i + 360) % 360;
+        let pt = projectEqualArea(t, friction, radius);
+        if (i <= -delta + 0.01) ctx.moveTo(cx + pt.x, cy + pt.y);
+        else ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      // 外緣：坡面大圓弧線
+      for (let i = delta; i >= -delta; i -= 1) {
+        let t = (slopeDir + i + 360) % 360;
+        let pRad = Math.atan(Math.tan(slopeDip * Math.PI/180) * Math.cos(i * Math.PI/180));
+        let pt = projectEqualArea(t, pRad * 180 / Math.PI, radius);
+        ctx.lineTo(cx + pt.x, cy + pt.y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.25)'; // 紫色透明區塊
+      ctx.fill();
+    };
+
+    // --- 圖例繪製 ---
+    const drawLegend = (ctx, width, height) => {
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      
+      const lgX = 15;
+      let lgY = 20;
+
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; ctx.fillRect(lgX, lgY-7, 14, 14);
+      ctx.fillStyle = '#1e293b'; ctx.fillText('平面破壞區', lgX+20, lgY); lgY += 22;
+
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.4)'; ctx.fillRect(lgX, lgY-7, 14, 14);
+      ctx.fillStyle = '#1e293b'; ctx.fillText('岩楔破壞區', lgX+20, lgY); lgY += 22;
+
+      ctx.fillStyle = 'rgba(234, 179, 8, 0.4)'; ctx.fillRect(lgX, lgY-7, 14, 14);
+      ctx.fillStyle = '#1e293b'; ctx.fillText('傾覆破壞區', lgX+20, lgY); lgY += 22;
+
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.beginPath(); ctx.arc(lgX+7, lgY, 7, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#1e293b'; ctx.fillText('極點等密度圖', lgX+20, lgY);
+    };
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('slope');
+      const canvasRef = useRef(null);
+      const [results, setResults] = useState([]);
+
+      const [slopeData, setSlopeData] = useState('N45E/50SE');
+      const [frictionAngle, setFrictionAngle] = useState(30);
+      const [jointsData, setJointsData] = useState('N30E/60SE J1\nN35E/65SE J1\nN25E/55SE J1\nN60W/70SW J2\nN65W/75SW J2\nN10E/80SE J3');
+      const [polesData, setPolesData] = useState('N10E/30SE\nN15E/35SE\nN5E/25SE\nN45W/40SW\nN50W/45SW\nN40W/35SW');
+      const [tunnelJoints, setTunnelJoints] = useState('N45E/60SE\nN45W/70SW\nN90E/80S');
+      const [drillHoles, setDrillHoles] = useState([
+        { trend: 0, plunge: 90, angle: 30 },
+        { trend: 120, plunge: 45, angle: 50 },
+        { trend: 240, plunge: 45, angle: 40 }
+      ]);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const cx = width / 2;
+        const cy = height / 2;
+        const radius = Math.min(cx, cy) - 30;
+
+        drawStereonetBase(ctx, cx, cy, radius);
+        let currentResults = [];
+
+        try {
+          if (activeTab === 'slope') {
+            const slope = parseAttitude(slopeData);
+            if (!slope) throw new Error("坡面格式錯誤");
+
+            // 1. 繪製圖例與不穩定區段 (底層)
+            drawLegend(ctx, width, height);
+            drawPlanarZone(ctx, cx, cy, radius, slope.dipDirection, slope.dip, frictionAngle);
+            drawTopplingZone(ctx, cx, cy, radius, slope.dipDirection, slope.dip, frictionAngle);
+            drawWedgeZone(ctx, cx, cy, radius, slope.dipDirection, slope.dip, frictionAngle);
+
+            // 2. 繪製坡面大圓弧與摩擦圓
+            drawGreatCircle(ctx, cx, cy, radius, slope.dipDirection, slope.dip, '#ef4444');
+            drawFrictionCircle(ctx, cx, cy, radius, frictionAngle);
+
+            // 3. 解析與自動群組弱面
+            const parsedJoints = jointsData.split('\n').map((line, i) => {
+              const cleanedLine = line.trim();
+              if (!cleanedLine) return null;
+              
+              const attitudeMatch = cleanedLine.match(/^[NSns]\s*\d+°?\s*[EWew]\s*\/\s*\d+°?\s*[NESWnesw]{1,2}/);
+              let attitudeStr = cleanedLine;
+              let labelStr = `J${i+1}`; 
+              
+              if (attitudeMatch) {
+                attitudeStr = attitudeMatch[0];
+                const rest = cleanedLine.substring(attitudeStr.length).trim();
+                if (rest) labelStr = rest;
+              }
+              const p = parseAttitude(attitudeStr);
+              if (!p) return null;
+              return { ...p, label: labelStr };
+            }).filter(Boolean);
+
+            const groupedJoints = {};
+            parsedJoints.forEach(j => {
+              if (!groupedJoints[j.label]) groupedJoints[j.label] = [];
+              groupedJoints[j.label].push(j);
+            });
+
+            const finalJoints = [];
+
+            Object.keys(groupedJoints).forEach((label, i) => {
+              const group = groupedJoints[label];
+              const color = `hsl(210, 100%, ${40 + (i * 15)}%)`;
+
+              if (group.length === 1) {
+                 finalJoints.push(group[0]);
+                 drawGreatCircle(ctx, cx, cy, radius, group[0].dipDirection, group[0].dip, color);
+                 drawPoint(ctx, cx, cy, radius, group[0].poleTrend, group[0].polePlunge, color, group[0].label);
+              } else {
+                 // 計算群組平均與變異
+                 let sumX=0, sumY=0, sumZ=0;
+                 group.forEach(j => {
+                   let c = toCartesian(j.poleTrend, j.polePlunge);
+                   sumX += c.x; sumY += c.y; sumZ += c.z;
+                 });
+                 let R = Math.sqrt(sumX*sumX + sumY*sumY + sumZ*sumZ);
+                 let meanSpherical = toSpherical(sumX, sumY, sumZ);
+                 let meanDip = 90 - meanSpherical.plunge;
+                 let meanDipDir = (meanSpherical.trend + 180) % 360;
+                 let meanStrike = (meanDipDir - 90 + 360) % 360;
+                 
+                 // 標準差推算等密度
+                 let sumSqTheta = 0;
+                 let meanCart = { x: sumX/R, y: sumY/R, z: sumZ/R };
+                 group.forEach(j => {
+                    let c = toCartesian(j.poleTrend, j.polePlunge);
+                    let dot = c.x*meanCart.x + c.y*meanCart.y + c.z*meanCart.z;
+                    if(dot > 1) dot = 1; if(dot < -1) dot = -1;
+                    let theta = Math.acos(dot) * 180 / Math.PI;
+                    sumSqTheta += theta * theta;
+                 });
+                 let sigma = Math.sqrt(sumSqTheta / group.length);
+                 let drawSigma = Math.max(sigma, 3); // 確保最小繪製半徑可見
+
+                 let qStrStrike = meanStrike <= 180 ? meanStrike : 360 - meanStrike;
+                 let qStrDir1 = meanStrike <= 90 || meanStrike >= 270 ? 'N' : 'S';
+                 let qStrDir2 = meanStrike <= 180 ? 'E' : 'W';
+                 let meanAtt = `${qStrDir1}${qStrStrike.toFixed(0)}${qStrDir2}/${meanDip.toFixed(0)}`;
+
+                 let meanJoint = {
+                    strike: meanStrike, dip: meanDip, dipDirection: meanDipDir,
+                    poleTrend: meanSpherical.trend, polePlunge: meanSpherical.plunge,
+                    label: label + "(平均)", original: `${group.length}筆群組平均(${meanAtt})`
+                 };
+                 finalJoints.push(meanJoint);
+
+                 // 繪製密度圈 (1σ 與 2σ)
+                 drawDensityCone(ctx, cx, cy, radius, meanSpherical.trend, meanSpherical.plunge, drawSigma * 2, 'rgba(59, 130, 246, 0.15)');
+                 drawDensityCone(ctx, cx, cy, radius, meanSpherical.trend, meanSpherical.plunge, drawSigma, 'rgba(59, 130, 246, 0.4)');
+
+                 // 繪製群組內原始點 (淺色標記)
+                 group.forEach(j => {
+                    drawPoint(ctx, cx, cy, radius, j.poleTrend, j.polePlunge, '#94a3b8', '');
+                 });
+                 // 繪製平均大圓與極點
+                 drawPoint(ctx, cx, cy, radius, meanSpherical.trend, meanSpherical.plunge, color, meanJoint.label);
+                 drawGreatCircle(ctx, cx, cy, radius, meanDipDir, meanDip, color);
+              }
+            });
+
+            // 4. 對整合後的最終弱面 (單一或平均) 執行破壞分析
+            finalJoints.forEach((j, i) => {
+              let dirDiff = Math.abs(j.dipDirection - slope.dipDirection);
+              if (dirDiff > 180) dirDiff = 360 - dirDiff;
+              if (dirDiff <= 20 && j.dip < slope.dip && j.dip > frictionAngle) {
+                currentResults.push(`⚠️ ${j.label} [${j.original}] 落入【平面滑動】不穩定區。`);
+              }
+
+              let strikeDiff = Math.abs(j.strike - slope.strike);
+              if (strikeDiff > 90) strikeDiff = 180 - strikeDiff;
+              let dipDirDiff = Math.abs(j.dipDirection - slope.dipDirection);
+              if (strikeDiff <= 30 && dipDirDiff > 90 && dipDirDiff < 270) { 
+                 if ((90 - j.dip) + slope.dip > frictionAngle) {
+                    currentResults.push(`⚠️ ${j.label} [${j.original}] 落入【傾覆破壞】不穩定區。`);
+                 }
+              }
+            });
+
+            // 岩楔分析
+            for (let i = 0; i < finalJoints.length; i++) {
+              for (let j = i + 1; j < finalJoints.length; j++) {
+                const v1 = toCartesian(finalJoints[i].poleTrend, finalJoints[i].polePlunge);
+                const v2 = toCartesian(finalJoints[j].poleTrend, finalJoints[j].polePlunge);
+                let intersect = crossProduct(v1, v2);
+                let { trend, plunge } = toSpherical(intersect.x, intersect.y, intersect.z);
+                
+                drawPoint(ctx, cx, cy, radius, trend, plunge, '#1e293b', `${finalJoints[i].label}×${finalJoints[j].label}`);
+
+                let diff = Math.abs(trend - slope.dipDirection);
+                if (diff > 180) diff = 360 - diff;
+                
+                if (plunge > frictionAngle && diff < 90) {
+                    const appDip = Math.atan(Math.tan(slope.dip * Math.PI/180) * Math.cos(diff * Math.PI/180)) * 180 / Math.PI;
+                    if (plunge < appDip) {
+                        currentResults.push(`⚠️ ${finalJoints[i].label} 與 ${finalJoints[j].label} 之交線落入【岩楔破壞】不穩定區 (傾沒角 ${plunge.toFixed(1)}°)。`);
+                    }
+                }
+              }
+            }
+            if (currentResults.length === 0) currentResults.push("✅ 此邊坡條件下未檢測出明顯的運動學幾何破壞風險。");
+
+          } else if (activeTab === 'poles') {
+            const poles = polesData.split('\n').map(s => parseAttitude(s.trim())).filter(Boolean);
+            if(poles.length < 2) throw new Error("請至少輸入兩個弱面資料");
+
+            let sumX=0, sumY=0, sumZ=0;
+            poles.forEach((p) => {
+              drawPoint(ctx, cx, cy, radius, p.poleTrend, p.polePlunge, '#3b82f6', '');
+              const v = toCartesian(p.poleTrend, p.polePlunge);
+              sumX += v.x; sumY += v.y; sumZ += v.z;
+            });
+
+            let bestAxis = { trend: 0, plunge: 0 };
+            let minError = Infinity;
+            
+            for(let t=0; t<360; t+=5) {
+                for(let p=0; p<=90; p+=5) {
+                    const testV = toCartesian(t, p);
+                    let error = 0;
+                    poles.forEach(pole => {
+                        const pv = toCartesian(pole.poleTrend, pole.polePlunge);
+                        const dot = testV.x*pv.x + testV.y*pv.y + testV.z*pv.z;
+                        error += Math.abs(dot);
+                    });
+                    if(error < minError) {
+                        minError = error;
+                        bestAxis = { trend: t, plunge: p };
+                    }
+                }
+            }
+
+            drawPoint(ctx, cx, cy, radius, bestAxis.trend, bestAxis.plunge, '#ef4444', 'β(褶皺軸)');
+            const piDipDir = (bestAxis.trend + 180) % 360;
+            const piDip = 90 - bestAxis.plunge;
+            drawGreatCircle(ctx, cx, cy, radius, piDipDir, piDip, '#10b981');
+
+            currentResults.push(`📊 分析了 ${poles.length} 筆資料。`);
+            currentResults.push(`🎯 估算之褶皺軸 (β 軸): 趨向 ${bestAxis.trend.toFixed(1)}° / 傾沒角 ${bestAxis.plunge.toFixed(1)}°`);
+
+          } else if (activeTab === 'tunnel') {
+            const joints = tunnelJoints.split('\n').map(s => parseAttitude(s.trim())).filter(Boolean);
+            let nSum = {x:0, y:0, z:0};
+            
+            joints.forEach((j, i) => {
+                const v = toCartesian(j.poleTrend, j.polePlunge);
+                nSum.x += v.x; nSum.y += v.y; nSum.z += v.z;
+                drawGreatCircle(ctx, cx, cy, radius, j.dipDirection, j.dip, '#94a3b8');
+            });
+
+            const avg = toSpherical(nSum.x, nSum.y, nSum.z);
+            drawPoint(ctx, cx, cy, radius, avg.trend, avg.plunge, '#ef4444', '最佳鑽孔');
+
+            currentResults.push(`💧 最佳灌漿/排水孔建議方向: 趨向 ${avg.trend.toFixed(1)}° / 傾角 ${avg.plunge.toFixed(1)}°`);
+            if(joints.length >= 3) {
+                 currentResults.push(`🪨 頂拱岩楔分析: 偵測到 ${joints.length} 組弱面交會。當三組弱面交線指向隧道內部時，有潛在掉落岩楔風險，建議依最佳方向佈置岩栓。`);
+            }
+
+          } else if (activeTab === 'borehole') {
+             let bestPlane = { dipDir: 0, dip: 0 };
+             let minError = Infinity;
+
+             for(let dd=0; dd<360; dd+=2) {
+                 for(let dp=0; dp<=90; dp+=2) {
+                     const poleT = (dd + 180) % 360;
+                     const poleP = 90 - dp;
+                     const pVec = toCartesian(poleT, poleP);
+                     
+                     let error = 0;
+                     drillHoles.forEach(hole => {
+                         const hVec = toCartesian(hole.trend, hole.plunge);
+                         const dot = Math.abs(pVec.x*hVec.x + pVec.y*hVec.y + pVec.z*hVec.z);
+                         const calcAngle = Math.acos(dot) * 180 / Math.PI;
+                         const diff = Math.min(Math.abs(calcAngle - hole.angle), Math.abs((90-calcAngle) - hole.angle));
+                         error += diff * diff;
+                     });
+
+                     if (error < minError) {
+                         minError = error;
+                         bestPlane = { dipDir: dd, dip: dp };
+                     }
+                 }
+             }
+
+             let strike = (bestPlane.dipDir - 90 + 360) % 360;
+             let qStr = "";
+             if(strike <= 90) qStr = `N${strike}E/${bestPlane.dip}SE`;
+             else if(strike <= 180) qStr = `S${180-strike}E/${bestPlane.dip}SW`;
+             else if(strike <= 270) qStr = `S${strike-180}W/${bestPlane.dip}NW`;
+             else qStr = `N${360-strike}W/${bestPlane.dip}NE`;
+
+             drawGreatCircle(ctx, cx, cy, radius, bestPlane.dipDir, bestPlane.dip, '#3b82f6');
+             drillHoles.forEach((h, i) => {
+                 drawPoint(ctx, cx, cy, radius, h.trend, h.plunge, '#ef4444', `H${i+1}`);
+             });
+
+             currentResults.push(`🕳️ 計算收斂誤差: ${minError.toFixed(2)}`);
+             currentResults.push(`📐 推算之岩層真實位態大約為: ${qStr} (傾角方向 ${bestPlane.dipDir}° / 傾角 ${bestPlane.dip}°)`);
+          }
+
+        } catch (e) {
+          currentResults = [`❌ 輸入格式錯誤: ${e.message}。請確認使用如 N30E/45SE 的象限角格式。`];
+        }
+        
+        setResults(currentResults);
+
+      }, [activeTab, slopeData, frictionAngle, jointsData, polesData, tunnelJoints, drillHoles]);
+
+      const handlePrint = () => {
+        window.print();
+      };
+
+      return (
+        <div className="min-h-screen">
+          <div className="print:hidden">
+            <header className="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <LocateFixed className="w-6 h-6 text-blue-400" />
+                <h1 className="text-xl font-bold tracking-wider">岩石力學赤平投影空間分析系統</h1>
+              </div>
+              <button 
+                onClick={handlePrint}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg transition"
+              >
+                <Printer className="w-4 h-4" />
+                列印圖面
+              </button>
+            </header>
+
+            <nav className="bg-white border-b overflow-x-auto">
+              <ul className="flex">
+                {[
+                  { id: 'slope', label: '邊坡穩定分析', icon: Mountain },
+                  { id: 'poles', label: '極點與褶皺軸分析', icon: Activity },
+                  { id: 'tunnel', label: '隧道工程分析', icon: Train },
+                  { id: 'borehole', label: '三鑽孔求層面', icon: Info }
+                ].map(tab => (
+                  <li key={tab.id}>
+                    <button
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center gap-2 px-6 py-4 text-sm font-semibold transition-colors border-b-2 ${
+                        activeTab === tab.id ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                      }`}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
+
+          <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 print:block print:p-0">
+            <section className="lg:col-span-4 space-y-6 print:hidden">
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  📝 參數輸入 (象限角格式)
+                </h2>
+                
+                {activeTab === 'slope' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">坡面位態 (例如: N45E/50SE)</label>
+                      <input type="text" value={slopeData} onChange={(e)=>setSlopeData(e.target.value)} className="w-full border rounded-md p-2 focus:ring-2 ring-blue-200 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">弱面/節理內摩擦角 (ϕ, 度)</label>
+                      <input type="number" value={frictionAngle} onChange={(e)=>setFrictionAngle(Number(e.target.value))} className="w-full border rounded-md p-2 focus:ring-2 ring-blue-200 outline-none" />
+                      
+                      <div className="text-xs text-gray-600 mt-2 bg-gray-100 p-3 rounded-lg border border-gray-200">
+                        <p className="font-bold text-gray-700 mb-1 flex items-center gap-1"><Info className="w-3 h-3" /> 摩擦角 (Friction Angle) 參考依據：</p>
+                        <ul className="list-disc list-inside space-y-1 ml-1">
+                          <li><strong>試驗報告：</strong>優先採用鑽探報告中之<span className="text-blue-600 font-medium">直接剪力試驗</span>、<span className="text-blue-600 font-medium">三軸壓縮試驗</span>或現場之<span className="text-blue-600 font-medium">傾斜試驗 (Tilt Test)</span>成果。</li>
+                          <li className="mt-1"><strong>文獻經驗值 (如 Hoek & Bray; Barton)：</strong>
+                            <ul className="pl-4 mt-1 border-l-2 border-gray-300 space-y-1">
+                              <li>堅硬岩塊 / 粗糙未風化節理：<span className="font-semibold text-gray-800">35° ~ 45°</span></li>
+                              <li>一般岩塊 / 表面平滑節理：<span className="font-semibold text-gray-800">25° ~ 35°</span></li>
+                              <li>軟弱岩塊 / 泥土充填弱面：<span className="font-semibold text-gray-800">10° ~ 25°</span></li>
+                            </ul>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">弱面/節理位態 (相同標記自動群組平均)</label>
+                      <textarea rows={6} value={jointsData} onChange={(e)=>setJointsData(e.target.value)} className="w-full border rounded-md p-2 focus:ring-2 ring-blue-200 outline-none font-mono text-sm leading-relaxed" />
+                    </div>
+
+                    <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 shadow-sm">
+                      <h3 className="font-bold flex items-center gap-2 mb-2 text-blue-800">
+                        <Info className="w-4 h-4" />
+                        破壞判定邏輯與圖例說明
+                      </h3>
+                      <ul className="space-y-3">
+                        <li>
+                          <strong>1. 平面滑動 (<span className="text-red-600">紅色區域</span>)：</strong>
+                          <ul className="list-disc list-inside ml-2 mt-1 text-blue-800/80">
+                            <li>方向一致，傾角小於坡角 (見光)，且大於摩擦角。</li>
+                          </ul>
+                        </li>
+                        <li>
+                          <strong>2. 傾覆破壞 (<span className="text-yellow-600">黃色區域</span>)：</strong>
+                          <ul className="list-disc list-inside ml-2 mt-1 text-blue-800/80">
+                            <li>走向平行且向坡內傾斜，重心發生傾倒偏移。</li>
+                          </ul>
+                        </li>
+                        <li>
+                          <strong>3. 岩楔破壞 (<span className="text-purple-600">紫色區域</span>)：</strong>
+                          <ul className="list-disc list-inside ml-2 mt-1 text-blue-800/80">
+                            <li>兩弱面「交線」傾沒角小於坡面視傾角，且大於摩擦角。</li>
+                          </ul>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'poles' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">節理/層面位態群 (每行一筆)</label>
+                      <textarea rows={10} value={polesData} onChange={(e)=>setPolesData(e.target.value)} className="w-full border rounded-md p-2 focus:ring-2 ring-blue-200 outline-none font-mono text-sm" />
+                    </div>
+                    <p className="text-xs text-gray-500">系統將自動繪製極點並計算最佳擬合面與褶皺軸(β軸)。</p>
+                  </div>
+                )}
+
+                {activeTab === 'tunnel' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">隧道壁/頂拱周圍弱面 (每行一筆)</label>
+                      <textarea rows={6} value={tunnelJoints} onChange={(e)=>setTunnelJoints(e.target.value)} className="w-full border rounded-md p-2 focus:ring-2 ring-blue-200 outline-none font-mono text-sm" />
+                    </div>
+                    <p className="text-xs text-gray-500">提供最佳灌漿孔/排水孔佈置方向，並初判掉落岩楔風險。</p>
+                  </div>
+                )}
+
+                {activeTab === 'borehole' && (
+                  <div className="space-y-4">
+                     <p className="text-sm text-gray-600 mb-2">輸入三個不同方向的鑽孔資料，及岩心所測得之層面夾角(0-90度)。</p>
+                     {drillHoles.map((hole, idx) => (
+                        <div key={idx} className="bg-gray-50 p-3 rounded border">
+                           <span className="font-bold text-sm block mb-2">鑽孔 {idx + 1}</span>
+                           <div className="grid grid-cols-3 gap-2 text-sm">
+                              <div>
+                                <label>趨向</label>
+                                <input type="number" value={hole.trend} onChange={(e) => {
+                                   const newHoles = [...drillHoles]; newHoles[idx].trend = Number(e.target.value); setDrillHoles(newHoles);
+                                }} className="w-full border rounded p-1"/>
+                              </div>
+                              <div>
+                                <label>傾沒</label>
+                                <input type="number" value={hole.plunge} onChange={(e) => {
+                                   const newHoles = [...drillHoles]; newHoles[idx].plunge = Number(e.target.value); setDrillHoles(newHoles);
+                                }} className="w-full border rounded p-1"/>
+                              </div>
+                              <div>
+                                <label>岩心角</label>
+                                <input type="number" value={hole.angle} onChange={(e) => {
+                                   const newHoles = [...drillHoles]; newHoles[idx].angle = Number(e.target.value); setDrillHoles(newHoles);
+                                }} className="w-full border rounded p-1"/>
+                              </div>
+                           </div>
+                        </div>
+                     ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="lg:col-span-8 space-y-6 print:w-full print:block">
+              <div className="bg-white p-6 rounded-xl shadow-sm border text-center print:border-none print:shadow-none relative">
+                 <h2 className="text-xl font-bold mb-4 print:block hidden">
+                    地質赤平投影圖解 - 
+                    {activeTab === 'slope' ? ' 邊坡穩定' : 
+                     activeTab === 'poles' ? ' 褶皺分析' : 
+                     activeTab === 'tunnel' ? ' 隧道分析' : ' 三鑽孔分析'}
+                 </h2>
+                 <div className="relative inline-block border rounded-lg p-4 bg-white mx-auto shadow-inner print:border-none print:shadow-none print:p-0">
+                   <canvas ref={canvasRef} width={500} height={500} className="max-w-full h-auto"></canvas>
+                 </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border print:border-t-2 print:border-x-0 print:border-b-0 print:shadow-none print:rounded-none">
+                <h3 className="text-lg font-bold mb-3 border-b pb-2">💡 分析結果</h3>
+                <ul className="space-y-2">
+                  {results.map((res, idx) => (
+                    <li key={idx} className={`p-3 rounded-lg ${res.includes('⚠️') ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-slate-50 border'}`}>
+                      {res}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
