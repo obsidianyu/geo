@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>隧道工程 RMR 岩體評分計算機</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+        }
+        .class-I { background-color: #d1fae5; color: #065f46; border-color: #34d399; }
+        .class-II { background-color: #e0f2fe; color: #075985; border-color: #38bdf8; }
+        .class-III { background-color: #fef08a; color: #854d0e; border-color: #facc15; }
+        .class-IV { background-color: #ffedd5; color: #9a3412; border-color: #fb923c; }
+        .class-V { background-color: #fee2e2; color: #991b1b; border-color: #f87171; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="bg-slate-800 text-white p-6">
+            <h1 class="text-2xl font-bold">隧道工程 RMR 岩體評分計算機</h1>
+            <p class="text-slate-300 mt-2 text-sm">依據 Bieniawski (1989) 標準，單壓強度基準已轉換為 kgf/cm²</p>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- 輸入區 -->
+            <div class="space-y-6">
+                <h2 class="text-lg font-semibold text-slate-700 border-b pb-2">評分參數輸入</h2>
+                
+                <!-- R1 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">1. 岩石單壓強度 (UCS)</label>
+                    <select id="r1" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="15">> 2500 kgf/cm² (極堅硬) [+15分]</option>
+                        <option value="12">1000 - 2500 kgf/cm² (堅硬) [+12分]</option>
+                        <option value="7" selected>500 - 1000 kgf/cm² (中等堅硬) [+7分]</option>
+                        <option value="4">250 - 500 kgf/cm² (軟岩) [+4分]</option>
+                        <option value="2">50 - 250 kgf/cm² (極軟岩) [+2分]</option>
+                        <option value="1">10 - 50 kgf/cm² (硬土/極弱岩) [+1分]</option>
+                        <option value="0">&lt; 10 kgf/cm² (土壤狀) [+0分]</option>
+                    </select>
+                </div>
+
+                <!-- R2 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">2. 岩石品質指標 (RQD)</label>
+                    <select id="r2" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="20">90% - 100% (極佳) [+20分]</option>
+                        <option value="17">75% - 90% (良好) [+17分]</option>
+                        <option value="13" selected>50% - 75% (普通) [+13分]</option>
+                        <option value="8">25% - 50% (不良) [+8分]</option>
+                        <option value="3">&lt; 25% (極差) [+3分]</option>
+                    </select>
+                </div>
+
+                <!-- R3 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">3. 不連續面間距</label>
+                    <select id="r3" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="20">> 2 公尺 (極寬) [+20分]</option>
+                        <option value="15">0.6 - 2 公尺 (寬) [+15分]</option>
+                        <option value="10" selected>0.2 - 0.6 公尺 (中等) [+10分]</option>
+                        <option value="8">60 - 200 毫米 (密) [+8分]</option>
+                        <option value="5">&lt; 60 毫米 (極密) [+5分]</option>
+                    </select>
+                </div>
+
+                <!-- R4 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">4. 不連續面性質</label>
+                    <select id="r4" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="30">極粗糙，未連續，無張開，牆岩未風化 [+30分]</option>
+                        <option value="25">微粗糙，張開 &lt; 1mm，牆岩微風化 [+25分]</option>
+                        <option value="20" selected>微粗糙，張開 &lt; 1mm，牆岩高度風化 [+20分]</option>
+                        <option value="10">平滑表面，或充填物 &lt; 5mm，或張開 1-5mm 連續 [+10分]</option>
+                        <option value="0">軟泥充填 > 5mm，或張開 > 5mm 且連續 [+0分]</option>
+                    </select>
+                </div>
+
+                <!-- R5 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">5. 地下水狀況</label>
+                    <select id="r5" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="15">完全乾燥 [+15分]</option>
+                        <option value="10">潮濕 (無明顯水流) [+10分]</option>
+                        <option value="7" selected>微水 (有水滴但無連續水流) [+7分]</option>
+                        <option value="4">滴水 (偶有連續水滴) [+4分]</option>
+                        <option value="0">湧水 (嚴重流水或高水壓) [+0分]</option>
+                    </select>
+                </div>
+
+                <!-- R6 -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">6. 隧道不連續面位向修正</label>
+                    <select id="r6" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none" onchange="calculateRMR()">
+                        <option value="0">非常有利 (走向垂直軸向，順向開挖，傾角 45°~90°) [-0分]</option>
+                        <option value="-2">有利 (走向垂直軸向，順向開挖，傾角 20°~45°) [-2分]</option>
+                        <option value="-5" selected>一般 (傾角 0°~20°；或平行軸向傾角 20°~45°；或垂直逆向傾角 45°~90°) [-5分]</option>
+                        <option value="-10">不利 (走向垂直軸向，逆向開挖，傾角 20°~45°) [-10分]</option>
+                        <option value="-12">非常不利 (走向平行隧道軸向，傾角 45°~90°) [-12分]</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 結果顯示區 -->
+            <div class="flex flex-col">
+                <h2 class="text-lg font-semibold text-slate-700 border-b pb-2 mb-6">計算結果</h2>
+                
+                <div id="resultBox" class="flex-1 rounded-xl border-2 p-6 flex flex-col items-center justify-center text-center transition-colors duration-300 class-III">
+                    <p class="text-sm font-bold uppercase tracking-wider mb-2 opacity-80">總評分 RMR</p>
+                    <div class="text-6xl font-black mb-4" id="totalScore">52</div>
+                    
+                    <div class="bg-white/50 rounded-lg px-4 py-2 mb-4 w-full">
+                        <p class="text-sm opacity-80 mb-1">岩體分類 (Rock Mass Class)</p>
+                        <p class="text-2xl font-bold" id="rockClass">Class III (普通岩體)</p>
+                    </div>
+
+                    <div class="text-left w-full mt-2 text-sm leading-relaxed" id="classDescription">
+                        <p><strong>工程特性：</strong>有中等跨距穩定問題。</p>
+                        <p><strong>自立時間：</strong>跨距 5 公尺約可自立 1 週。</p>
+                        <p><strong>支撐建議：</strong>需要系統性岩栓與噴凝土（50-100mm）支撐。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-slate-100 p-4 text-center text-xs text-slate-500 border-t">
+            * 本計算機基於 Bieniawski (1989) RMR 岩體分類系統。結果僅供初步評估參考，實際工程需經專業技師判斷。
+        </div>
+    </div>
+
+    <script>
+        function calculateRMR() {
+            // 取得各項分數
+            const r1 = parseInt(document.getElementById('r1').value);
+            const r2 = parseInt(document.getElementById('r2').value);
+            const r3 = parseInt(document.getElementById('r3').value);
+            const r4 = parseInt(document.getElementById('r4').value);
+            const r5 = parseInt(document.getElementById('r5').value);
+            const r6 = parseInt(document.getElementById('r6').value);
+
+            // 計算總分
+            const total = r1 + r2 + r3 + r4 + r5 + r6;
+            document.getElementById('totalScore').innerText = total;
+
+            // 判斷等級與說明
+            let rockClass = "";
+            let classClass = "";
+            let desc = "";
+
+            if (total >= 81) {
+                rockClass = "Class I (極佳岩體)";
+                classClass = "class-I";
+                desc = `<p><strong>工程特性：</strong>穩定度極高，極少岩體力學問題。</p>
+                        <p><strong>自立時間：</strong>跨距 15 公尺可自立 20 年。</p>
+                        <p><strong>支撐建議：</strong>一般無需支撐，或僅需局部點狀岩栓。</p>`;
+            } else if (total >= 61) {
+                rockClass = "Class II (良好岩體)";
+                classClass = "class-II";
+                desc = `<p><strong>工程特性：</strong>岩體完整，整體穩定性良好。</p>
+                        <p><strong>自立時間：</strong>跨距 10 公尺可自立 6 個月。</p>
+                        <p><strong>支撐建議：</strong>局部岩栓，拱頂需 50mm 噴凝土。</p>`;
+            } else if (total >= 41) {
+                rockClass = "Class III (普通岩體)";
+                classClass = "class-III";
+                desc = `<p><strong>工程特性：</strong>有中等跨距穩定問題。</p>
+                        <p><strong>自立時間：</strong>跨距 5 公尺約可自立 1 週。</p>
+                        <p><strong>支撐建議：</strong>系統性岩栓與噴凝土（50-100mm）支撐。</p>`;
+            } else if (total >= 21) {
+                rockClass = "Class IV (不良岩體)";
+                classClass = "class-IV";
+                desc = `<p><strong>工程特性：</strong>穩定性差，易發生擠壓變形或坍塌。</p>
+                        <p><strong>自立時間：</strong>跨距 2.5 公尺約可自立 10 小時。</p>
+                        <p><strong>支撐建議：</strong>需即時支撐，系統岩栓、噴凝土（100-150mm）及輕型鋼支柱。</p>`;
+            } else {
+                rockClass = "Class V (極難岩體)";
+                classClass = "class-V";
+                desc = `<p><strong>工程特性：</strong>極易坍塌，幾乎無自立能力。</p>
+                        <p><strong>自立時間：</strong>跨距 1 公尺可能在 30 分鐘內塌陷。</p>
+                        <p><strong>支撐建議：</strong>需全面預撐、重型鋼支柱與厚噴凝土，常須配合灌漿等輔助工法。</p>`;
+            }
+
+            // 更新畫面
+            document.getElementById('rockClass').innerText = rockClass;
+            document.getElementById('classDescription').innerHTML = desc;
+            
+            // 更新顏色樣式
+            const resultBox = document.getElementById('resultBox');
+            resultBox.className = `flex-1 rounded-xl border-2 p-6 flex flex-col items-center justify-center text-center transition-colors duration-300 ${classClass}`;
+        }
+
+        // 網頁載入時先執行一次計算確保畫面同步
+        window.onload = calculateRMR;
+    </script>
+</body>
+</html>
