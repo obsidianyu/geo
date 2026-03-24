@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>工程案例分布圖</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        /* 設定地圖填滿整個畫面 */
+        body { margin: 0; padding: 0; }
+        #map { height: 100vh; width: 100vw; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script>
+        // 1. 初始化地圖，設定中心點座標(台灣)與縮放比例
+        var map = L.map('map').setView([23.6, 120.9], 7);
+
+        // 2. 載入免費的 OpenStreetMap 底圖
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 3. 讀取你上傳的 GeoJSON 檔案
+        fetch('assets/cases.geojson')
+            .then(response => response.json())
+            .then(data => {
+                // 將 GeoJSON 畫到地圖上
+                L.geoJSON(data, {
+                    // 針對每一個點/多邊形設定點擊後的標籤 (Popup)
+                    onEachFeature: function (feature, layer) {
+                        // 確保圖資屬性裡有名稱
+                        if (feature.properties && feature.properties.Name) {
+                            // 組合彈出視窗的 HTML 內容
+                            var popupContent = "<h3>" + feature.properties.Name + "</h3>";
+                            
+                            // 如果屬性裡有 Link (連結)，就加上「前往案例說明」的按鈕
+                            if (feature.properties.Link) {
+                                // target="_parent" 是為了讓連結覆蓋掉整個文件庫畫面，而不是擠在小框框裡
+                                popupContent += "<a href='../" + feature.properties.Link + "' target='_parent' style='display:block; background:#005A9C; color:white; padding:5px 10px; text-align:center; text-decoration:none; border-radius:3px;'>查看案例說明</a>";
+                            }
+                            // 綁定標籤
+                            layer.bindPopup(popupContent);
+                        }
+                    }
+                }).addTo(map);
+            })
+            .catch(error => console.error('圖資載入失敗:', error));
+    </script>
+</body>
+</html>
