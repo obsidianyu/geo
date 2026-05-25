@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台電台北供電區處 - 鐵塔線路定位工具</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "Microsoft JhengHei", sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #control-panel {
+            background-color: #f8f9fa;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .form-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        label {
+            font-weight: bold;
+            color: #333;
+        }
+        select, input, button {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+        .loading-tip {
+            color: #6c757d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="control-panel">
+        <div class="form-group">
+            <label for="lineSelect">線路名：</label>
+            <select id="lineSelect">
+                <option value="">-- 請選擇線路 --</option>
+            </select>
+            <span id="loadingText" class="loading-tip">（正在載入線路清單...）</span>
+        </div>
+        
+        <div class="form-group">
+            <label for="towerInput">塔號：</label>
+            <input type="text" id="towerInput" placeholder="例如: 001 或 1" disabled>
+        </div>
+        
+        <button id="locateBtn" disabled>自動定位</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
+
+    <script>
+        // 1. 您的 ArcGIS Server 鐵塔線路圖層 REST URL (指定到圖層 0)
+        const taipowerLayerUrl = "https://s01703016.d017.msad.taipower.com.tw:6443/arcgis/rest/services/鐵塔線路/台北供電區處鐵塔線路/MapServer/0";
+
+        // 2. 初始化 Leaflet 地圖（預設中心設在台北）
+        const map = L.map('map').setView([25.03, 121.56], 11);
+
+        // 3. 介接內政部地政司「台灣通用電子地圖 (EMAP)」WMTS 作為底圖
+        const emapLayer = L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}.png', {
+            attribution: '&copy; <a href="https://maps.nlsc.gov.tw/" target="_blank">內政部國土測繪中心</a>',
+            maxZoom: 19
+        }).addTo(map);
+
+        // 4. 建立 ArcGIS 要素圖層物件（帶入地圖中）
+        const towerLayer = L.esri.featureLayer({
+            url: taipowerLayerUrl,
+            // 如果您的伺服器需要安全驗證，請在下方解除註解並填入 Token
+            // token: 'YOUR_ARCGIS_TOKEN' 
+        }).addTo(map);
+
+        // 5. 動態向伺服器查詢「不重複的線路名稱」以填入下拉選單
+        // 注意：請將下方 '線路名' 替換為您資料庫中該欄位的「確切英文或中文名稱」
+        const lineFieldName = "線路名"; 
+        const towerFieldName = "塔號";  // 請替換為您資料庫中塔號的欄位名稱
+
+        L.esri.query({
+            url: taipowerLayerUrl
+        }).where("1=1").fields([lineFieldName]).returnGeometry(false).run(function(error, featureCollection) {
+            if (error) {
+                console.error("無法讀取線路資料，請檢查網路連線或權限設定。", error);
+                document.getElementById('loadingText').innerText = "（載入失敗，請檢查內部網路連線）";
+                return;
+            }
+
+            // 萃取所有不重複的線路名稱
+            const lines = [];
+            featureCollection.features.forEach(f => {
+                const val = f.properties[lineFieldName];
+                if (val && !lines.includes(val)) {
+                    lines.push(val);
+                }
+            });
+            lines.sort();
+
+            // 填入下拉選單
+            const select = document.getElementById('lineSelect');
+            lines.forEach(line => {
+                const opt = document.createElement('option');
+                opt.value = line;
+                opt.innerText = line;
+                select.appendChild(opt);
+            });
+
+            // 啟用輸入框與按鈕
+            document.getElementById('loadingText').style.display = 'none';
+            document.getElementById('towerInput').disabled = false;
+            document.getElementById('locateBtn').disabled = false;
+        });
+
+        // 6. 定位按鈕點擊事件處理
+        document.getElementById('locateBtn').addEventListener('click', function() {
+            const selectedLine = document.getElementById('lineSelect').value;
+            const inputTower = document.getElementById('towerInput').value.trim();
+
+            if (!selectedLine) {
+                alert("請先選擇線路名稱！");
+                return;
+            }
+            if (!inputTower) {
+                alert("請輸入要定位的塔號！");
+                return;
+            }
+
+            // 組成 SQL 查詢語法
+            const whereClause = `${lineFieldName} = '${selectedLine}' AND ${towerFieldName} = '${inputTower}'`;
+
+            // 向 ArcGIS Server 發送精確查詢並請求定位邊界
+            towerLayer.query().where(whereClause).bounds(function(error, latlngBounds) {
+                if (error) {
+                    alert("查詢時發生錯誤，請確認欄位名稱是否正確。");
+                    return;
+                }
+
+                if (latlngBounds && latlngBounds.isValid()) {
+                    // 自動平移並縮放地圖到該鐵塔座標
+                    map.flyToBounds(latlngBounds, {
+                        maxZoom: 18,
+                        padding: [50, 50],
+                        duration: 1.5 // 動態飛越動畫時間(秒)
+                    });
+                    
+                    // 可選：在定位點彈出提示訊息
+                    towerLayer.query().where(whereClause).run(function(err, fc){
+                        if(!err && fc.features.length > 0) {
+                            const feat = fc.features[0];
+                            L.popup()
+                             .setLatLng([feat.geometry.coordinates[1], feat.geometry.coordinates[0]])
+                             .setContent(`<b>定位成功</b><br>線路：${selectedLine}<br>塔號：${inputTower}`)
+                             .openOn(map);
+                        }
+                    });
+                } else {
+                    alert(`找不到該點位！\n請確認在「${selectedLine}」中是否存在塔號「${inputTower}」。`);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
