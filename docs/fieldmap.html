@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>野外調查 Web GIS 系統</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Proj4js for EPSG:3826 (TWD97) Conversion -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    
+    <!-- toGeoJSON for GPX parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+    
+    <!-- shp-write for Shapefile export -->
+    <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        
+        /* Custom UI Panel */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            z-index: 1000;
+        }
+        
+        /* Draggable item style */
+        .layer-item.dragging { opacity: 0.5; background: #e2e8f0; }
+        
+        /* Hide scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- UI Overlay: Control Panel -->
+    <div class="absolute top-4 right-4 w-80 glass-panel rounded-xl flex flex-col max-h-[90vh] overflow-hidden">
+        
+        <!-- Header -->
+        <div class="bg-blue-600 text-white p-4 rounded-t-xl flex justify-between items-center">
+            <h1 class="text-lg font-bold"><i class="fa-solid fa-map-location-dot mr-2"></i>調查地圖控制台</h1>
+            <button onclick="togglePanel()" class="text-white hover:text-gray-200"><i class="fa-solid fa-chevron-up"></i></button>
+        </div>
+
+        <div id="panel-content" class="overflow-y-auto p-4 space-y-6">
+            
+            <!-- 1. 打點工具 -->
+            <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查與量測工具</h2>
+                <input type="text" id="point-remark" placeholder="輸入備註說明..." class="w-full text-sm p-2 mb-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <button onclick="recordPoint()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded text-sm transition">
+                    <i class="fa-solid fa-location-crosshairs mr-1"></i> 獲取座標並記錄
+                </button>
+                <div id="record-status" class="text-xs text-gray-500 mt-2 text-center">尚未記錄任何點位</div>
+                
+                <div class="flex gap-2 mt-3">
+                    <button onclick="exportCSV()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載 CSV</button>
+                    <button onclick="exportSHP()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載 SHP</button>
+                </div>
+
+                <!-- 量測工具區塊 -->
+                <div class="border-t mt-3 pt-2">
+                    <button id="btn-measure" onclick="toggleMeasure()" class="w-full bg-gray-700 hover:bg-blue-600 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center">
+                        <i class="fa-solid fa-ruler mr-1"></i> <span>開啟距離量測</span>
+                    </button>
+                    <div class="text-[10px] text-gray-400 mt-1 text-center leading-tight">量測時點擊左鍵新增節點<br>點擊右鍵(或ESC)清除與結束</div>
+                </div>
+            </div>
+
+            <!-- 2. 雲端同步 & 快取管理 -->
+            <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">☁️ 雲端與檔案工具</h2>
+                
+                <div class="grid grid-cols-2 gap-2 mb-2 mt-2">
+                    <button onclick="fetchDriveData()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>同步圖層</button>
+                    <button onclick="uploadToDrive()" class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>上傳紀錄</button>
+                </div>
+                
+                <div class="grid grid-cols-1 gap-2 pt-2 border-t">
+                    <label class="flex items-center justify-center w-full bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold py-2 rounded cursor-pointer transition">
+                        <i class="fa-solid fa-file-import mr-1"></i>匯入 GPX 航跡
+                        <input type="file" id="gpx-upload" accept=".gpx" class="hidden">
+                    </label>
+                    <button onclick="clearCache()" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-trash-can mr-1"></i>清除離線快取並重整</button>
+                </div>
+            </div>
+
+            <!-- 3. 圖層管理器 -->
+            <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex-1">
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📚 圖層管理 (拖拉排序)</h2>
+                <p class="text-xs text-gray-500 mb-2">上層圖層會覆蓋下層，請拖曳 = 符號調整。</p>
+                <ul id="layer-list" class="space-y-2">
+                    <!-- 圖層列表將由 JS 動態生成 -->
+                </ul>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- UI Overlay: Loading Toast -->
+    <div id="toast" class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-opacity duration-300 opacity-0 pointer-events-none z-[2000]">
+        訊息通知
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 初始化與座標系統設定
+        // ==========================================
+        // 定義 TWD97 (EPSG:3826) 座標系統
+        proj4.defs("EPSG:3826", "+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
+
+        // 初始化地圖，預設中心點為台灣
+        const map = L.map('map', { zoomControl: false }).setView([23.6978, 120.9605], 8);
+        L.control.zoom({ position: 'topleft' }).addTo(map);
+
+        // 用於儲存打點紀錄的陣列 (GeoJSON 格式)
+        let collectedPoints = {
+            type: "FeatureCollection",
+            features: []
+        };
+
+        // ==========================================
+        // 2. 預設圖層庫設定 (依您的需求排序)
+        // ==========================================
+        // 定義基礎圖層來源
+        const baseLayerDefinitions = [
+            {
+                id: 'nlsc_land',
+                name: '公有土地地籍圖',
+                type: 'tile',
+                url: 'https://wmts.nlsc.gov.tw/wmts/LAND_OPENDATA/default/GoogleMapsCompatible/{z}/{y}/{x}',
+                options: { layers: 'LAND_SECT', format: 'image/png', transparent: true, attribution: '© NLSC' }
+            },
+            {
+                // 地質敏感區 (WMS 範例，如官方變更網址需手動更新)
+                id: 'cgs_sensitive',
+                name: '地質敏感區 (綜合)',
+                type: 'tile',
+                url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive/default/GoogleMapsCompatible/{z}/{y}/{x}', 
+                options: { layers: 'GSA', format: 'image/png', transparent: true, attribution: '© NLSC' }
+            },
+            {
+                id: 'cgs_landslide',
+                name: '地質敏感區(山崩與地滑)',
+                type: 'tile',
+                url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive2/default/GoogleMapsCompatible/{z}/{y}/{x}',
+                options: { layers: 'GSA_L', format: 'image/png', transparent: true, attribution: '© NLSC' }
+            },
+            {
+                id: 'osm',
+                name: 'OpenStreetMap',
+                type: 'tile',
+                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                options: { attribution: '© OSM', maxZoom: 19 }
+            },
+            {
+                id: 'arcgis_sat',
+                name: 'ArcGIS 衛星影像',
+                type: 'tile',
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                options: { attribution: '© ESRI', maxZoom: 19 }
+            },
+            {
+                id: 'nlsc_emap',
+                name: '台灣通用電子地圖',
+                type: 'tile',
+                url: 'https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}',
+                options: { attribution: '© 國土測繪中心', maxZoom: 20 }
+            },
+            {
+                id: 'nlsc_ortho',
+                name: '正射影像(混合)',
+                type: 'tile',
+                url: 'https://wmts.nlsc.gov.tw/wmts/PHOTO_MIX/default/GoogleMapsCompatible/{z}/{y}/{x}',
+                options: { attribution: '© 國土測繪中心', maxZoom: 20 }
+            }
+
+        ];
+
+        // 活動圖層陣列 (管理排序、透明度、顯示狀態)
+        let activeLayers = [];
+
+        // 初始化預設圖層
+        function initBaseLayers() {
+            // 反向載入，讓在陣列最前面的在最上層
+            [...baseLayerDefinitions].reverse().forEach((def, index) => {
+                let layerObj;
+                if (def.type === 'tile') {
+                    layerObj = L.tileLayer(def.url, def.options);
+                } else if (def.type === 'wms') {
+                    layerObj = L.tileLayer.wms(def.url, def.options);
+                }
+                
+                // 預設開啟 OSM 作為底圖
+                const isVisible = (def.id === 'osm');
+                if (isVisible) layerObj.addTo(map);
+
+                activeLayers.push({
+                    id: def.id,
+                    name: def.name,
+                    layer: layerObj,
+                    visible: isVisible,
+                    opacity: 100
+                });
+            });
+            // 由於反轉過，現在陣列最後面的是最上層。我們重新反轉回來符合 UI 直覺
+            activeLayers.reverse();
+            updateMapZIndex();
+            renderLayerList();
+        }
+
+        // ==========================================
+        // 3. 圖層管理與拖拉排序 UI 邏輯
+        // ==========================================
+        function updateMapZIndex() {
+            // Leaflet z-index 越高越在上面。
+            // 我們的 activeLayers 陣列 index 0 代表最上層
+            const maxZ = activeLayers.length + 10;
+            activeLayers.forEach((item, index) => {
+                if (item.layer.setZIndex) {
+                    item.layer.setZIndex(maxZ - index);
+                }
+            });
+        }
+
+        function toggleLayerVisibility(id, checked) {
+            const item = activeLayers.find(l => l.id === id);
+            if (!item) return;
+            item.visible = checked;
+            if (checked) {
+                item.layer.addTo(map);
+                item.layer.setOpacity(item.opacity / 100); // 確保透明度正確
+            } else {
+                map.removeLayer(item.layer);
+            }
+        }
+
+        function changeLayerOpacity(id, value) {
+            const item = activeLayers.find(l => l.id === id);
+            if (!item) return;
+            item.opacity = value;
+            
+            // TileLayers, WMS 等支援 setOpacity
+            if (item.layer.setOpacity) {
+                item.layer.setOpacity(value / 100);
+            } else if (item.layer.setStyle) {
+                // GeoJSON 支援 setStyle
+                item.layer.setStyle({ fillOpacity: value/100, opacity: value/100 });
+            }
+        }
+
+        function renderLayerList() {
+            const listEl = document.getElementById('layer-list');
+            listEl.innerHTML = '';
+            
+            activeLayers.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'layer-item flex flex-col bg-gray-50 border rounded p-2 text-sm shadow-sm cursor-grab active:cursor-grabbing';
+                li.draggable = true;
+                li.dataset.index = index;
+                
+                li.innerHTML = `
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-bars text-gray-400"></i>
+                            <input type="checkbox" id="chk-${item.id}" ${item.visible ? 'checked' : ''} onchange="toggleLayerVisibility('${item.id}', this.checked)" class="w-4 h-4 text-blue-600 rounded">
+                            <label for="chk-${item.id}" class="font-semibold text-gray-700 truncate w-36">${item.name}</label>
+                        </div>
+                        ${item.id === 'user_points' ? '<span class="text-[10px] bg-blue-100 text-blue-800 px-1 rounded">打點</span>' : ''}
+                    </div>
+                    <div class="flex items-center gap-2 pl-6">
+                        <span class="text-[10px] text-gray-500 w-6">透明</span>
+                        <input type="range" min="0" max="100" value="${item.opacity}" oninput="changeLayerOpacity('${item.id}', this.value)" class="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer">
+                        <button onclick="zoomToLayer('${item.id}')" class="text-gray-400 hover:text-blue-600 transition p-1" title="縮放至圖層範圍">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </button>
+                    </div>
+                `;
+
+                // 拖拉排序事件
+                li.addEventListener('dragstart', handleDragStart);
+                li.addEventListener('dragover', handleDragOver);
+                li.addEventListener('drop', handleDrop);
+                li.addEventListener('dragend', handleDragEnd);
+                
+                listEl.appendChild(li);
+            });
+            updateMapZIndex();
+        }
+
+        let dragStartIndex;
+        function handleDragStart(e) {
+            dragStartIndex = +this.dataset.index;
+            this.classList.add('opacity-50', 'bg-gray-200');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+        function handleDragOver(e) { e.preventDefault(); }
+        function handleDrop(e) {
+            e.stopPropagation();
+            const dragEndIndex = +this.dataset.index;
+            if (dragStartIndex !== dragEndIndex) {
+                // 交換陣列位置
+                const draggedItem = activeLayers.splice(dragStartIndex, 1)[0];
+                activeLayers.splice(dragEndIndex, 0, draggedItem);
+                renderLayerList(); // 重新渲染並更新 z-index
+            }
+        }
+        function handleDragEnd() { this.classList.remove('opacity-50', 'bg-gray-200'); }
+
+        // ==========================================
+        // 4. 打點與本機快取功能
+        // ==========================================
+        let pointsLayer = L.geoJSON(null, {
+            pointToLayer: function (feature, latlng) {
+                return L.circleMarker(latlng, {
+                    radius: 6, fillColor: "#ff0000", color: "#ffffff", weight: 1, opacity: 1, fillOpacity: 0.8
+                });
+            },
+            onEachFeature: function (feature, layer) {
+                layer.bindPopup(`<b>備註:</b> ${feature.properties.remark}<br><b>時間:</b> ${feature.properties.time}<br><b>TWD97:</b> X:${feature.properties.twd97X}, Y:${feature.properties.twd97Y}`);
+            }
+        });
+
+        // 加入打點圖層到管理清單
+        function initPointsLayer() {
+            activeLayers.unshift({ // 放最上層
+                id: 'user_points',
+                name: '野外打點紀錄 (本機)',
+                layer: pointsLayer,
+                visible: true,
+                opacity: 100
+            });
+            pointsLayer.addTo(map);
+            loadLocalPoints();
+        }
+
+        function recordPoint() {
+            if (!navigator.geolocation) {
+                showToast("您的瀏覽器不支援定位功能", "error");
+                return;
+            }
+            
+            const remarkInput = document.getElementById('point-remark');
+            const remark = remarkInput.value.trim() || "未命名紀錄點";
+            
+            showToast("定位中，請稍候...");
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const time = new Date().toLocaleString('zh-TW', {hour12: false});
+                    
+                    // WGS84 轉 TWD97
+                    const twd97 = proj4('EPSG:4326', 'EPSG:3826', [lng, lat]);
+                    const twd97X = twd97[0].toFixed(3);
+                    const twd97Y = twd97[1].toFixed(3);
+                    
+                    const newFeature = {
+                        type: "Feature",
+                        geometry: { type: "Point", coordinates: [lng, lat] },
+                        properties: {
+                            time: time,
+                            remark: remark,
+                            lat: lat,
+                            lng: lng,
+                            twd97X: twd97X,
+                            twd97Y: twd97Y
+                        }
+                    };
+                    
+                    collectedPoints.features.push(newFeature);
+                    saveLocalPoints();
+                    
+                    // 更新地圖
+                    pointsLayer.addData(newFeature);
+                    map.setView([lat, lng], 17); // 定位過去
+                    
+                    remarkInput.value = ""; // 清空輸入框
+                    showToast(`📍 記錄成功！已轉換 TWD97 座標`);
+                    updateRecordStatus();
+                },
+                (error) => {
+                    showToast(`定位失敗: ${error.message}`, "error");
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        function saveLocalPoints() {
+            localStorage.setItem('webgis_collected_points', JSON.stringify(collectedPoints));
+            updateRecordStatus();
+        }
+
+        function loadLocalPoints() {
+            const cached = localStorage.getItem('webgis_collected_points');
+            if (cached) {
+                try {
+                    collectedPoints = JSON.parse(cached);
+                    pointsLayer.addData(collectedPoints);
+                } catch(e) { console.error("快取解析失敗", e); }
+            }
+            updateRecordStatus();
+        }
+
+        function updateRecordStatus() {
+            const count = collectedPoints.features.length;
+            document.getElementById('record-status').innerText = `目前已記錄 ${count} 個點位`;
+        }
+
+        // ==========================================
+        // 5. 匯出功能 (CSV & SHP)
+        // ==========================================
+        function exportCSV() {
+            if (collectedPoints.features.length === 0) return showToast("沒有資料可匯出", "error");
+            
+            // CSV Header
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // 加上 BOM 避免 Excel 亂碼
+            csvContent += "時間,備註,WGS84_緯度,WGS84_經度,TWD97_X,TWD97_Y\n";
+            
+            collectedPoints.features.forEach(f => {
+                const p = f.properties;
+                csvContent += `"${p.time}","${p.remark}",${p.lat},${p.lng},${p.twd97X},${p.twd97Y}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `打點紀錄_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        function exportSHP() {
+            if (collectedPoints.features.length === 0) return showToast("沒有資料可匯出", "error");
+            if (typeof shpwrite === 'undefined') return showToast("SHP 匯出套件載入失敗，請檢查網路", "error");
+            
+            showToast("正在產生 Shapefile...");
+            
+            // shpwrite 要求單純的 GeoJSON
+            const options = {
+                folder: '調查點位',
+                types: { point: 'Points' }
+            };
+            
+            // 下載 ZIP 包裝的 SHP
+            shpwrite.download(collectedPoints, options);
+        }
+
+        // ==========================================
+        // 6. GAS 雲端 API 介接 (上傳與下載)
+        // ==========================================
+        // ⚠️ 關鍵設定：請將下方的字串替換為您的 GAS「網頁應用程式 URL」 (結尾通常是 /exec)
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzudqAB8L1jULCuwBxZw07f0ogy2K7T8Lz0Nqjbh3KXlMyb1X7R6e9q-LAlKUhPywaG/exec";
+
+        function fetchDriveData() {
+            if(!GAS_API_URL || GAS_API_URL.includes("請在此輸入")) return showToast("請先在程式碼中設定 GAS_API_URL", "error");
+            
+            showToast("下載雲端資料中...");
+            
+            // 加入 redirect: "follow" 確保跨網域轉址順利
+            fetch(GAS_API_URL, { redirect: "follow" })
+                .then(async res => {
+                    const text = await res.text(); // 先以純文字讀取，方便攔截錯誤
+                    try {
+                        return JSON.parse(text); // 嘗試轉換為 JSON
+                    } catch (e) {
+                        console.error("GAS 錯誤回傳內容:", text);
+                        if(text.includes("<html") || text.includes("<body")) {
+                            throw new Error("GAS 權限錯誤！請確認部署時有選擇「所有人 (Anyone)」");
+                        }
+                        throw new Error("雲端資料夾內的 JSON 格式損壞，請檢查檔案內容");
+                    }
+                })
+                .then(result => {
+                    if(result.status !== "success") throw new Error(result.message);
+                    
+                    const files = result.data;
+                    if(files.length === 0) {
+                        return showToast("雲端資料夾中沒有找到有效的 GeoJSON 檔案", "error");
+                    }
+
+                    // 將資料備份到離線快取
+                    localStorage.setItem('webgis_drive_layers', JSON.stringify(files));
+                    processDriveLayers(files);
+                    showToast(`已成功載入 ${files.length} 個雲端圖層`);
+                })
+                .catch(err => {
+                    console.warn("API 失敗，嘗試讀取離線快取", err);
+                    const cached = localStorage.getItem('webgis_drive_layers');
+                    if (cached) {
+                        processDriveLayers(JSON.parse(cached));
+                        showToast(`同步失敗(${err.message.substring(0,15)}...)，已載入離線備份`, "error");
+                    } else {
+                        showToast(`同步失敗: ${err.message}`, "error");
+                    }
+                });
+        }
+
+        function processDriveLayers(files) {
+            files.forEach(file => {
+                // 檢查是否已存在，避免重複加入
+                if (activeLayers.some(l => l.id === file.id)) return;
+                
+                // 🌟 新增邏輯：判斷此 GeoJSON 是否為 TWD97 (檢查 CRS 或 座標值)
+                let isTWD97 = false;
+                if (file.content && file.content.crs && file.content.crs.properties && file.content.crs.properties.name) {
+                    const crsName = file.content.crs.properties.name.toUpperCase();
+                    if (crsName.includes("3826") || crsName.includes("TWD97")) isTWD97 = true;
+                }
+                
+                const gLayer = L.geoJSON(file.content, {
+                    // 🌟 核心修正：將讀取的座標動態轉換為 Leaflet 支援的 WGS84
+                    coordsToLatLng: function(coords) {
+                        // 經驗法則判定：若明確標示 TWD97，或 X 座標大於 1000 (台灣的經度只有 120 左右，大於 1000 必為投影座標)
+                        if (isTWD97 || Math.abs(coords[0]) > 1000) {
+                            const wgs84 = proj4('EPSG:3826', 'EPSG:4326', [coords[0], coords[1]]);
+                            return new L.LatLng(wgs84[1], wgs84[0], coords[2]);
+                        }
+                        // 預設為 WGS84 標準 GeoJSON
+                        return new L.LatLng(coords[1], coords[0], coords[2]);
+                    },
+                    onEachFeature: (feature, layer) => {
+                        let popup = `<b>來源:</b> ${file.name}<br>`;
+                        if(feature.properties) {
+                            for (let key in feature.properties) {
+                                popup += `<b>${key}:</b> ${feature.properties[key]}<br>`;
+                            }
+                        }
+                        layer.bindPopup(popup);
+                    },
+                    style: { color: "#3b82f6", weight: 2 }
+                });
+                
+                activeLayers.splice(1, 0, { // 加在打點圖層下方
+                    id: file.id,
+                    name: `☁️ ${file.name}`,
+                    layer: gLayer,
+                    visible: true,
+                    opacity: 100
+                });
+                
+                gLayer.addTo(map);
+            });
+            renderLayerList();
+        }
+
+        function uploadToDrive() {
+            if(!GAS_API_URL || GAS_API_URL.includes("請在此輸入")) return showToast("請先在程式碼中設定 GAS_API_URL", "error");
+            if (collectedPoints.features.length === 0) return showToast("沒有打點資料可上傳", "error");
+
+            showToast("上傳資料中...");
+            
+            const payload = {
+                fileName: `野外調查點位_${new Date().toISOString().slice(0,10)}.json`,
+                geoJson: collectedPoints
+            };
+
+            // 指定 text/plain 避免觸發複雜的預檢請求 (Preflight) 導致 GAS 阻擋
+            fetch(GAS_API_URL, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                redirect: "follow"
+            })
+            .then(res => res.json())
+            .then(result => {
+                if(result.status === "success") {
+                    showToast(result.message);
+                } else {
+                    throw new Error(result.message);
+                }
+            })
+            .catch(err => showToast(`上傳失敗: ${err.message}`, "error"));
+        }
+
+        // ==========================================
+        // 7. GPX 上傳與解析功能
+        // ==========================================
+        document.getElementById('gpx-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const xmlData = evt.target.result;
+                const gpxDom = new DOMParser().parseFromString(xmlData, 'text/xml');
+                const geoJson = toGeoJSON.gpx(gpxDom);
+                
+                const gpxLayer = L.geoJSON(geoJson, {
+                    style: { color: '#ff00ff', weight: 4, opacity: 0.8 },
+                    pointToLayer: (feat, latlng) => L.circleMarker(latlng, { radius: 4, color: '#ff00ff' }),
+                    onEachFeature: (f, l) => l.bindPopup(f.properties.name || "GPX 軌跡")
+                });
+                
+                // 動態加入管理清單
+                const layerId = 'gpx_' + Date.now();
+                activeLayers.splice(1, 0, {
+                    id: layerId,
+                    name: `📁 ${file.name}`,
+                    layer: gpxLayer,
+                    visible: true,
+                    opacity: 100
+                });
+                
+                gpxLayer.addTo(map);
+                map.fitBounds(gpxLayer.getBounds()); // 視角拉過去
+                renderLayerList();
+                showToast(`已載入 GPX: ${file.name}`);
+            };
+            reader.readAsText(file);
+        });
+
+        // ==========================================
+        // 8. 系統工具 (快取、UI)
+        // ==========================================
+        function clearCache() {
+            if(confirm("確定要清除本機暫存嗎？這會刪除您尚未匯出的打點資料，並將網頁恢復初始狀態。")) {
+                localStorage.removeItem('webgis_collected_points');
+                localStorage.removeItem('webgis_drive_layers');
+                // GAS URL 保留不刪，方便下次使用
+                location.reload();
+            }
+        }
+
+        function showToast(msg, type = "success") {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.className = `fixed bottom-5 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-opacity duration-300 z-[2000] ${type === 'error' ? 'bg-red-600 text-white' : 'bg-gray-800 text-white'}`;
+            toast.classList.remove('opacity-0');
+            setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
+        }
+
+        // 手機版收合選單邏輯
+        function togglePanel() {
+            const content = document.getElementById('panel-content');
+            const icon = document.querySelector('.fa-chevron-up, .fa-chevron-down');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+            } else {
+                content.style.display = 'none';
+                icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+            }
+        }
+
+        // ==========================================
+        // 9. 圖層縮放與距離量測功能
+        // ==========================================
+        
+        // 縮放至該圖層範圍
+        function zoomToLayer(id) {
+            const item = activeLayers.find(l => l.id === id);
+            if (!item || !item.layer) return;
+
+            // 檢查該圖層是否具備 getBounds 方法 (GeoJSON, GPX, 或 FeatureGroup)
+            if (typeof item.layer.getBounds === 'function') {
+                try {
+                    const bounds = item.layer.getBounds();
+                    if (bounds.isValid()) {
+                        map.fitBounds(bounds, { maxZoom: 18, padding: [20, 20] });
+                        return;
+                    } else {
+                        showToast("該圖層目前沒有資料內容可供縮放", "error");
+                        return;
+                    }
+                } catch(e) { console.warn(e); }
+            }
+            showToast("此類型的地圖 (底圖/WMS) 不支援自動縮放範圍", "error");
+        }
+
+        // 距離量測變數
+        let isMeasuring = false;
+        let measureLine = null;
+        let measurePoints = [];
+        let measureTooltips = [];
+        let currentTempLine = null;
+
+        function toggleMeasure() {
+            isMeasuring = !isMeasuring;
+            const btn = document.getElementById('btn-measure');
+            const btnSpan = btn.querySelector('span');
+            const btnIcon = btn.querySelector('i');
+            
+            if (isMeasuring) {
+                btn.classList.replace('bg-gray-700', 'bg-blue-600');
+                btnSpan.innerText = "結束量測";
+                btnIcon.classList.replace('fa-ruler', 'fa-stop');
+                
+                map.getContainer().style.cursor = 'crosshair';
+                map.doubleClickZoom.disable();
+                map.on('click', onMeasureClick);
+                map.on('mousemove', onMeasureMove);
+                map.on('contextmenu', clearMeasure); // 右鍵清除
+                document.addEventListener('keydown', onMeasureKeyDown); // ESC清除
+                
+                showToast("📏 量測已啟動: 請點擊地圖新增節點");
+            } else {
+                btn.classList.replace('bg-blue-600', 'bg-gray-700');
+                btnSpan.innerText = "開啟距離量測";
+                btnIcon.classList.replace('fa-stop', 'fa-ruler');
+                
+                map.getContainer().style.cursor = '';
+                map.doubleClickZoom.enable();
+                map.off('click', onMeasureClick);
+                map.off('mousemove', onMeasureMove);
+                map.off('contextmenu', clearMeasure);
+                document.removeEventListener('keydown', onMeasureKeyDown);
+                clearMeasure(); // 關閉時自動清除畫面上的線段
+            }
+        }
+
+        function onMeasureClick(e) {
+            measurePoints.push(e.latlng);
+            
+            if (measurePoints.length === 1) {
+                measureLine = L.polyline(measurePoints, {color: '#ef4444', weight: 4, opacity: 0.8}).addTo(map);
+                const marker = L.circleMarker(e.latlng, {radius: 5, color: '#ef4444', fillColor: '#ffffff', fillOpacity: 1, weight: 2}).addTo(map);
+                measureTooltips.push(marker);
+                marker.bindTooltip("起點", {permanent: true, direction: 'right', className: 'text-xs font-bold'}).openTooltip();
+            } else {
+                measureLine.setLatLngs(measurePoints);
+                const marker = L.circleMarker(e.latlng, {radius: 5, color: '#ef4444', fillColor: '#ffffff', fillOpacity: 1, weight: 2}).addTo(map);
+                measureTooltips.push(marker);
+                
+                // 計算總距離
+                let dist = 0;
+                for(let i = 0; i < measurePoints.length - 1; i++) {
+                    dist += measurePoints[i].distanceTo(measurePoints[i+1]);
+                }
+                
+                let text = dist > 1000 ? (dist / 1000).toFixed(2) + " km" : Math.round(dist) + " m";
+                marker.bindTooltip(text, {permanent: true, direction: 'right', className: 'text-xs font-bold'}).openTooltip();
+            }
+        }
+
+        function onMeasureMove(e) {
+            if (measurePoints.length > 0) {
+                if (currentTempLine) map.removeLayer(currentTempLine);
+                currentTempLine = L.polyline([measurePoints[measurePoints.length - 1], e.latlng], {color: '#ef4444', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+            }
+        }
+
+        function onMeasureKeyDown(e) {
+            if (e.key === 'Escape') clearMeasure();
+        }
+
+        function clearMeasure(e) {
+            if (e && e.originalEvent) e.originalEvent.preventDefault(); // 阻止瀏覽器右鍵選單出現
+            if (measureLine) map.removeLayer(measureLine);
+            if (currentTempLine) map.removeLayer(currentTempLine);
+            measureTooltips.forEach(m => map.removeLayer(m));
+            measurePoints = [];
+            measureTooltips = [];
+            measureLine = null;
+            currentTempLine = null;
+        }
+
+        // 初始化執行
+        window.onload = () => {
+            initBaseLayers();
+            initPointsLayer();
+            
+            // 啟動自動嘗試從離線快取載入 Drive 圖層
+            const cachedDrive = localStorage.getItem('webgis_drive_layers');
+            if(cachedDrive) {
+                processDriveLayers(JSON.parse(cachedDrive));
+                showToast("已從離線快取載入先前的雲端圖層");
+            }
+        };
+
+    </script>
+</body>
+</html>
