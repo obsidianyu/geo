@@ -44,6 +44,54 @@
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+        /* GPS 藍點與視角錐 CSS 樣式 */
+        .gps-marker-container {
+            position: relative;
+            width: 30px;
+            height: 30px;
+        }
+        .gps-blue-dot {
+            width: 14px;
+            height: 14px;
+            background-color: #2563eb;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            box-shadow: 0 0 6px rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+        .gps-pulse {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: rgba(37, 99, 235, 0.25);
+            position: absolute;
+            top: 0;
+            left: 0;
+            animation: gps-pulse-anim 2s infinite ease-out;
+            pointer-events: none;
+        }
+        @keyframes gps-pulse-anim {
+            0% { transform: scale(0.4); opacity: 1; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        /* 面對方向扇形視角錐 */
+        .gps-heading-cone {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-bottom: 35px solid rgba(37, 99, 235, 0.35);
+            top: -20px;
+            left: 0px;
+            transform-origin: 15px 35px; /* 以圓心為旋轉軸 */
+            pointer-events: none;
+            transition: transform 0.15s ease-out;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -62,11 +110,11 @@
 
         <div id="panel-content" class="overflow-y-auto p-4 space-y-6">
             
-            <!-- 1. 打點工具 -->
+            <!-- 1. 打點與量測、定位工具 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查與量測工具</h2>
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查、量測與定位</h2>
                 <input type="text" id="point-remark" placeholder="輸入備註說明..." class="w-full text-sm p-2 mb-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-                <button onclick="recordPoint()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded text-sm transition">
+                <button onclick="recordPoint()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded text-sm transition mb-2">
                     <i class="fa-solid fa-location-crosshairs mr-1"></i> 獲取座標並記錄
                 </button>
                 <div id="record-status" class="text-xs text-gray-500 mt-2 text-center">尚未記錄任何點位</div>
@@ -76,11 +124,20 @@
                     <button onclick="exportSHP()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載 SHP</button>
                 </div>
 
-                <!-- 量測工具區塊 -->
-                <div class="border-t mt-3 pt-2">
+                <!-- 量測與 GPS 追蹤工具區塊 -->
+                <div class="border-t mt-3 pt-2 space-y-2">
                     <button id="btn-measure" onclick="toggleMeasure()" class="w-full bg-gray-700 hover:bg-blue-600 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center">
                         <i class="fa-solid fa-ruler mr-1"></i> <span>開啟距離量測</span>
                     </button>
+                    
+                    <button id="btn-gps-track" onclick="toggleGPSTrack()" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center">
+                        <i class="fa-solid fa-location-arrow mr-1"></i> <span>開啟 GPS 即時定位</span>
+                    </button>
+                    
+                    <div id="gps-info" class="text-[10px] text-gray-500 text-center leading-tight hidden">
+                        精度: <span id="gps-accuracy">-</span>m | 羅盤方位: <span id="gps-heading-val">-</span>°
+                    </div>
+                    
                     <div class="text-[10px] text-gray-400 mt-1 text-center leading-tight">量測時點擊左鍵新增節點<br>點擊右鍵(或ESC)清除與結束</div>
                 </div>
             </div>
@@ -150,7 +207,6 @@
                 options: { layers: 'LAND_SECT', format: 'image/png', transparent: true, attribution: '© NLSC' }
             },
             {
-                // 地質敏感區 (WMS 範例，如官方變更網址需手動更新)
                 id: 'cgs_sensitive',
                 name: '地質敏感區 (綜合)',
                 type: 'tile',
@@ -192,7 +248,6 @@
                 url: 'https://wmts.nlsc.gov.tw/wmts/PHOTO_MIX/default/GoogleMapsCompatible/{z}/{y}/{x}',
                 options: { attribution: '© 國土測繪中心', maxZoom: 20 }
             }
-
         ];
 
         // 活動圖層陣列 (管理排序、透明度、顯示狀態)
@@ -200,7 +255,6 @@
 
         // 初始化預設圖層
         function initBaseLayers() {
-            // 反向載入，讓在陣列最前面的在最上層
             [...baseLayerDefinitions].reverse().forEach((def, index) => {
                 let layerObj;
                 if (def.type === 'tile') {
@@ -209,7 +263,6 @@
                     layerObj = L.tileLayer.wms(def.url, def.options);
                 }
                 
-                // 預設開啟 OSM 作為底圖
                 const isVisible = (def.id === 'osm');
                 if (isVisible) layerObj.addTo(map);
 
@@ -221,7 +274,6 @@
                     opacity: 100
                 });
             });
-            // 由於反轉過，現在陣列最後面的是最上層。我們重新反轉回來符合 UI 直覺
             activeLayers.reverse();
             updateMapZIndex();
             renderLayerList();
@@ -231,8 +283,6 @@
         // 3. 圖層管理與拖拉排序 UI 邏輯
         // ==========================================
         function updateMapZIndex() {
-            // Leaflet z-index 越高越在上面。
-            // 我們的 activeLayers 陣列 index 0 代表最上層
             const maxZ = activeLayers.length + 10;
             activeLayers.forEach((item, index) => {
                 if (item.layer.setZIndex) {
@@ -247,7 +297,7 @@
             item.visible = checked;
             if (checked) {
                 item.layer.addTo(map);
-                item.layer.setOpacity(item.opacity / 100); // 確保透明度正確
+                item.layer.setOpacity(item.opacity / 100);
             } else {
                 map.removeLayer(item.layer);
             }
@@ -258,11 +308,9 @@
             if (!item) return;
             item.opacity = value;
             
-            // TileLayers, WMS 等支援 setOpacity
             if (item.layer.setOpacity) {
                 item.layer.setOpacity(value / 100);
             } else if (item.layer.setStyle) {
-                // GeoJSON 支援 setStyle
                 item.layer.setStyle({ fillOpacity: value/100, opacity: value/100 });
             }
         }
@@ -295,7 +343,6 @@
                     </div>
                 `;
 
-                // 拖拉排序事件
                 li.addEventListener('dragstart', handleDragStart);
                 li.addEventListener('dragover', handleDragOver);
                 li.addEventListener('drop', handleDrop);
@@ -317,10 +364,9 @@
             e.stopPropagation();
             const dragEndIndex = +this.dataset.index;
             if (dragStartIndex !== dragEndIndex) {
-                // 交換陣列位置
                 const draggedItem = activeLayers.splice(dragStartIndex, 1)[0];
                 activeLayers.splice(dragEndIndex, 0, draggedItem);
-                renderLayerList(); // 重新渲染並更新 z-index
+                renderLayerList();
             }
         }
         function handleDragEnd() { this.classList.remove('opacity-50', 'bg-gray-200'); }
@@ -339,9 +385,8 @@
             }
         });
 
-        // 加入打點圖層到管理清單
         function initPointsLayer() {
-            activeLayers.unshift({ // 放最上層
+            activeLayers.unshift({
                 id: 'user_points',
                 name: '野外打點紀錄 (本機)',
                 layer: pointsLayer,
@@ -369,7 +414,6 @@
                     const lng = position.coords.longitude;
                     const time = new Date().toLocaleString('zh-TW', {hour12: false});
                     
-                    // WGS84 轉 TWD97
                     const twd97 = proj4('EPSG:4326', 'EPSG:3826', [lng, lat]);
                     const twd97X = twd97[0].toFixed(3);
                     const twd97Y = twd97[1].toFixed(3);
@@ -390,11 +434,10 @@
                     collectedPoints.features.push(newFeature);
                     saveLocalPoints();
                     
-                    // 更新地圖
                     pointsLayer.addData(newFeature);
-                    map.setView([lat, lng], 17); // 定位過去
+                    map.setView([lat, lng], 17);
                     
-                    remarkInput.value = ""; // 清空輸入框
+                    remarkInput.value = "";
                     showToast(`📍 記錄成功！已轉換 TWD97 座標`);
                     updateRecordStatus();
                 },
@@ -432,8 +475,7 @@
         function exportCSV() {
             if (collectedPoints.features.length === 0) return showToast("沒有資料可匯出", "error");
             
-            // CSV Header
-            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // 加上 BOM 避免 Excel 亂碼
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
             csvContent += "時間,備註,WGS84_緯度,WGS84_經度,TWD97_X,TWD97_Y\n";
             
             collectedPoints.features.forEach(f => {
@@ -455,34 +497,28 @@
             if (typeof shpwrite === 'undefined') return showToast("SHP 匯出套件載入失敗，請檢查網路", "error");
             
             showToast("正在產生 Shapefile...");
-            
-            // shpwrite 要求單純的 GeoJSON
             const options = {
                 folder: '調查點位',
                 types: { point: 'Points' }
             };
-            
-            // 下載 ZIP 包裝的 SHP
             shpwrite.download(collectedPoints, options);
         }
 
         // ==========================================
-        // 6. GAS 雲端 API 介接 (上傳與下載)
+        // 6. GAS 雲端 API 介接與「不覆蓋」防護上傳功能
         // ==========================================
-        // ⚠️ 關鍵設定：請將下方的字串替換為您的 GAS「網頁應用程式 URL」 (結尾通常是 /exec)
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzBKFI-wHKVX2AlnLQ_MqSCBZbFPPyyGkt3NDIWLMCu8rmoc0KFEJnCkY26aVdn1oDg/exec";
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzudqAB8L1jULCuwBxZw07f0ogy2K7T8Lz0Nqjbh3KXlMyb1X7R6e9q-LAlKUhPywaG/exec";
 
         function fetchDriveData() {
             if(!GAS_API_URL || GAS_API_URL.includes("請在此輸入")) return showToast("請先在程式碼中設定 GAS_API_URL", "error");
             
             showToast("下載雲端資料中...");
             
-            // 加入 redirect: "follow" 確保跨網域轉址順利
             fetch(GAS_API_URL, { redirect: "follow" })
                 .then(async res => {
-                    const text = await res.text(); // 先以純文字讀取，方便攔截錯誤
+                    const text = await res.text();
                     try {
-                        return JSON.parse(text); // 嘗試轉換為 JSON
+                        return JSON.parse(text);
                     } catch (e) {
                         console.error("GAS 錯誤回傳內容:", text);
                         if(text.includes("<html") || text.includes("<body")) {
@@ -499,7 +535,6 @@
                         return showToast("雲端資料夾中沒有找到有效的 GeoJSON 檔案", "error");
                     }
 
-                    // 將資料備份到離線快取
                     localStorage.setItem('webgis_drive_layers', JSON.stringify(files));
                     processDriveLayers(files);
                     showToast(`已成功載入 ${files.length} 個雲端圖層`);
@@ -518,10 +553,8 @@
 
         function processDriveLayers(files) {
             files.forEach(file => {
-                // 檢查是否已存在，避免重複加入
                 if (activeLayers.some(l => l.id === file.id)) return;
                 
-                // 🌟 新增邏輯：判斷此 GeoJSON 是否為 TWD97 (檢查 CRS 或 座標值)
                 let isTWD97 = false;
                 if (file.content && file.content.crs && file.content.crs.properties && file.content.crs.properties.name) {
                     const crsName = file.content.crs.properties.name.toUpperCase();
@@ -529,14 +562,11 @@
                 }
                 
                 const gLayer = L.geoJSON(file.content, {
-                    // 🌟 核心修正：將讀取的座標動態轉換為 Leaflet 支援的 WGS84
                     coordsToLatLng: function(coords) {
-                        // 經驗法則判定：若明確標示 TWD97，或 X 座標大於 1000 (台灣的經度只有 120 左右，大於 1000 必為投影座標)
                         if (isTWD97 || Math.abs(coords[0]) > 1000) {
                             const wgs84 = proj4('EPSG:3826', 'EPSG:4326', [coords[0], coords[1]]);
                             return new L.LatLng(wgs84[1], wgs84[0], coords[2]);
                         }
-                        // 預設為 WGS84 標準 GeoJSON
                         return new L.LatLng(coords[1], coords[0], coords[2]);
                     },
                     onEachFeature: (feature, layer) => {
@@ -551,7 +581,7 @@
                     style: { color: "#3b82f6", weight: 2 }
                 });
                 
-                activeLayers.splice(1, 0, { // 加在打點圖層下方
+                activeLayers.splice(1, 0, {
                     id: file.id,
                     name: `☁️ ${file.name}`,
                     layer: gLayer,
@@ -570,12 +600,21 @@
 
             showToast("上傳資料中...");
             
+            // 🌟 核心防護修改：採用精準到「秒」的時間戳記命名，清除快取後再度上傳時，將在雲端保留為獨立檔案而不被覆蓋！
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const date = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const timestampName = `${year}-${month}-${date}_${hours}${minutes}${seconds}`;
+            
             const payload = {
-                fileName: `野外調查點位_${new Date().toISOString().slice(0,10)}.json`,
+                fileName: `野外調查點位_${timestampName}.json`,
                 geoJson: collectedPoints
             };
 
-            // 指定 text/plain 避免觸發複雜的預檢請求 (Preflight) 導致 GAS 阻擋
             fetch(GAS_API_URL, {
                 method: 'POST',
                 body: JSON.stringify(payload),
@@ -612,7 +651,6 @@
                     onEachFeature: (f, l) => l.bindPopup(f.properties.name || "GPX 軌跡")
                 });
                 
-                // 動態加入管理清單
                 const layerId = 'gpx_' + Date.now();
                 activeLayers.splice(1, 0, {
                     id: layerId,
@@ -623,7 +661,7 @@
                 });
                 
                 gpxLayer.addTo(map);
-                map.fitBounds(gpxLayer.getBounds()); // 視角拉過去
+                map.fitBounds(gpxLayer.getBounds());
                 renderLayerList();
                 showToast(`已載入 GPX: ${file.name}`);
             };
@@ -637,7 +675,6 @@
             if(confirm("確定要清除本機暫存嗎？這會刪除您尚未匯出的打點資料，並將網頁恢復初始狀態。")) {
                 localStorage.removeItem('webgis_collected_points');
                 localStorage.removeItem('webgis_drive_layers');
-                // GAS URL 保留不刪，方便下次使用
                 location.reload();
             }
         }
@@ -650,7 +687,6 @@
             setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
         }
 
-        // 手機版收合選單邏輯
         function togglePanel() {
             const content = document.getElementById('panel-content');
             const icon = document.querySelector('.fa-chevron-up, .fa-chevron-down');
@@ -664,15 +700,12 @@
         }
 
         // ==========================================
-        // 9. 圖層縮放與距離量測功能
+        // 9. 圖層縮放、距離量測 與 GPS 即時羅盤追蹤功能
         // ==========================================
-        
-        // 縮放至該圖層範圍
         function zoomToLayer(id) {
             const item = activeLayers.find(l => l.id === id);
             if (!item || !item.layer) return;
 
-            // 檢查該圖層是否具備 getBounds 方法 (GeoJSON, GPX, 或 FeatureGroup)
             if (typeof item.layer.getBounds === 'function') {
                 try {
                     const bounds = item.layer.getBounds();
@@ -702,6 +735,7 @@
             const btnIcon = btn.querySelector('i');
             
             if (isMeasuring) {
+                if (isGPSTracking) toggleGPSTrack(); // 互斥
                 btn.classList.replace('bg-gray-700', 'bg-blue-600');
                 btnSpan.innerText = "結束量測";
                 btnIcon.classList.replace('fa-ruler', 'fa-stop');
@@ -710,8 +744,8 @@
                 map.doubleClickZoom.disable();
                 map.on('click', onMeasureClick);
                 map.on('mousemove', onMeasureMove);
-                map.on('contextmenu', clearMeasure); // 右鍵清除
-                document.addEventListener('keydown', onMeasureKeyDown); // ESC清除
+                map.on('contextmenu', clearMeasure);
+                document.addEventListener('keydown', onMeasureKeyDown);
                 
                 showToast("📏 量測已啟動: 請點擊地圖新增節點");
             } else {
@@ -725,7 +759,7 @@
                 map.off('mousemove', onMeasureMove);
                 map.off('contextmenu', clearMeasure);
                 document.removeEventListener('keydown', onMeasureKeyDown);
-                clearMeasure(); // 關閉時自動清除畫面上的線段
+                clearMeasure();
             }
         }
 
@@ -742,7 +776,6 @@
                 const marker = L.circleMarker(e.latlng, {radius: 5, color: '#ef4444', fillColor: '#ffffff', fillOpacity: 1, weight: 2}).addTo(map);
                 measureTooltips.push(marker);
                 
-                // 計算總距離
                 let dist = 0;
                 for(let i = 0; i < measurePoints.length - 1; i++) {
                     dist += measurePoints[i].distanceTo(measurePoints[i+1]);
@@ -765,7 +798,7 @@
         }
 
         function clearMeasure(e) {
-            if (e && e.originalEvent) e.originalEvent.preventDefault(); // 阻止瀏覽器右鍵選單出現
+            if (e && e.originalEvent) e.originalEvent.preventDefault();
             if (measureLine) map.removeLayer(measureLine);
             if (currentTempLine) map.removeLayer(currentTempLine);
             measureTooltips.forEach(m => map.removeLayer(m));
@@ -775,12 +808,153 @@
             currentTempLine = null;
         }
 
+        // ==========================================
+        // 10. 🛰️ GPS 即時定位與電子羅盤（面對方向）引擎
+        // ==========================================
+        let isGPSTracking = false;
+        let gpsWatchId = null;
+        let gpsLeafletMarker = null;
+        let compassHeading = 0;
+
+        function toggleGPSTrack() {
+            isGPSTracking = !isGPSTracking;
+            const btn = document.getElementById('btn-gps-track');
+            const btnSpan = btn.querySelector('span');
+            const infoBox = document.getElementById('gps-info');
+            
+            if (isGPSTracking) {
+                if (isMeasuring) toggleMeasure(); // 互斥
+                btn.classList.replace('bg-blue-600', 'bg-red-500');
+                btnSpan.innerText = "關閉 GPS 即時定位";
+                infoBox.classList.remove('hidden');
+                
+                startGPSWatch();
+                requestOrientationPermission();
+                showToast("🛰️ 啟動即時追蹤！請確保您的裝置在戶外且已授權 GPS");
+            } else {
+                btn.classList.replace('bg-red-500', 'bg-blue-600');
+                btnSpan.innerText = "開啟 GPS 即時定位";
+                infoBox.classList.add('hidden');
+                
+                stopGPSWatch();
+            }
+        }
+
+        function startGPSWatch() {
+            if (!navigator.geolocation) {
+                showToast("您的裝置不支援定位功能", "error");
+                return;
+            }
+            
+            gpsWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const accuracy = Math.round(position.coords.accuracy);
+                    
+                    document.getElementById('gps-accuracy').innerText = accuracy;
+                    
+                    // 建立或更新地圖上的藍點定位圖標
+                    updateGPSMarkerPosition(lat, lng);
+                    
+                    // 視角置中並跟隨
+                    map.setView([lat, lng], 17);
+                },
+                (error) => {
+                    console.error("GPS 錯誤: ", error);
+                    showToast(`GPS 定位異常: ${error.message}`, "error");
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        }
+
+        function stopGPSWatch() {
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+            if (gpsLeafletMarker) {
+                map.removeLayer(gpsLeafletMarker);
+                gpsLeafletMarker = null;
+            }
+            window.removeEventListener('deviceorientation', handleOrientation, true);
+            window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
+        }
+
+        function updateGPSMarkerPosition(lat, lng) {
+            const gpsIcon = L.divIcon({
+                className: 'leaflet-gps-div-icon',
+                html: `
+                    <div class="gps-marker-container">
+                        <div class="gps-heading-cone" style="transform: rotate(${compassHeading}deg);"></div>
+                        <div class="gps-pulse"></div>
+                        <div class="gps-blue-dot"></div>
+                    </div>
+                `,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
+
+            if (gpsLeafletMarker === null) {
+                gpsLeafletMarker = L.marker([lat, lng], { icon: gpsIcon }).addTo(map);
+            } else {
+                gpsLeafletMarker.setLatLng([lat, lng]);
+                gpsLeafletMarker.setIcon(gpsIcon);
+            }
+        }
+
+        // 取得羅盤方向
+        function requestOrientationPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // iOS 專屬安全機制
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation, true);
+                        } else {
+                            showToast("電子羅盤授權遭拒，將無法顯示面對方向", "error");
+                        }
+                    })
+                    .catch(err => {
+                        console.error(err);
+                    });
+            } else {
+                // Android 系統直接掛載
+                window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+                window.addEventListener('deviceorientation', handleOrientation, true);
+            }
+        }
+
+        function handleOrientation(event) {
+            let heading = null;
+            
+            if (event.webkitCompassHeading !== undefined) {
+                // iOS 專用航向角
+                heading = event.webkitCompassHeading;
+            } else if (event.absolute === true || event.absolute === undefined) {
+                if (event.alpha !== null) {
+                    // Android 專用航向角 (0度代表正北，逆時針旋轉，所以需要調整為順時針)
+                    heading = 360 - event.alpha;
+                }
+            }
+            
+            if (heading !== null) {
+                compassHeading = Math.round(heading);
+                document.getElementById('gps-heading-val').innerText = compassHeading;
+                
+                // 動態轉動地圖上的面對方向視角錐
+                const cone = document.querySelector('.gps-heading-cone');
+                if (cone) {
+                    cone.style.transform = `rotate(${compassHeading}deg)`;
+                }
+            }
+        }
+
         // 初始化執行
         window.onload = () => {
             initBaseLayers();
             initPointsLayer();
             
-            // 啟動自動嘗試從離線快取載入 Drive 圖層
             const cachedDrive = localStorage.getItem('webgis_drive_layers');
             if(cachedDrive) {
                 processDriveLayers(JSON.parse(cachedDrive));
