@@ -103,8 +103,8 @@
     <div class="absolute top-4 right-4 w-80 glass-panel rounded-xl flex flex-col max-h-[90vh] overflow-hidden">
         
         <!-- Header -->
-        <div class="bg-blue-600 text-white p-4 rounded-t-xl flex justify-between items-center">
-            <h1 class="text-lg font-bold"><i class="fa-solid fa-map-location-dot mr-2"></i>調查地圖控制台</h1>
+        <div class="bg-blue-600 text-white p-3 rounded-t-sm flex justify-between items-center">
+            <h1 class="text-sm font-bold"><i class="fa-solid fa-map-location-dot mr-2"></i>地圖控制台</h1>
             <button onclick="togglePanel()" class="text-white hover:text-gray-200"><i class="fa-solid fa-chevron-up"></i></button>
         </div>
 
@@ -112,18 +112,13 @@
             
             <!-- 1. 打點與量測、定位工具 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查、量測與定位</h2>
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查點位</h2>
                 <input type="text" id="point-remark" placeholder="輸入備註說明..." class="w-full text-sm p-2 mb-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
-                <button onclick="recordPoint()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded text-sm transition mb-2">
+                <button onclick="recordPoint()" class="w-full bg-green-800 hover:bg-green-800 text-white font-bold py-2 px-4 rounded text-xs transition mb-2">
                     <i class="fa-solid fa-location-crosshairs mr-1"></i> 獲取座標並記錄
                 </button>
                 <div id="record-status" class="text-xs text-gray-500 mt-2 text-center">尚未記錄任何點位</div>
                 
-                <div class="flex gap-2 mt-3">
-                    <button onclick="exportCSV()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載 CSV</button>
-                    <button onclick="exportSHP()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載 SHP</button>
-                </div>
-
                 <!-- 量測與 GPS 追蹤工具區塊 -->
                 <div class="border-t mt-3 pt-2 space-y-2">
                     <button id="btn-measure" onclick="toggleMeasure()" class="w-full bg-gray-700 hover:bg-blue-600 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center">
@@ -144,13 +139,16 @@
 
             <!-- 2. 雲端同步 & 快取管理 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">☁️ 雲端與檔案工具</h2>
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">☁️ 控制台工具</h2>
                 
-                <div class="grid grid-cols-2 gap-2 mb-2 mt-2">
-                    <button onclick="fetchDriveData()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>同步圖層</button>
-                    <button onclick="uploadToDrive()" class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>上傳紀錄</button>
-                </div>
-                
+                <div class="grid grid-cols-1 gap-2 mb-2 mt-2">
+                    <button onclick="fetchDriveData()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>同步雲端圖層</button>
+                    <button onclick="uploadToDrive()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 rounded text-xs transition mb-2"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>雲端上傳本機紀錄</button>
+                    </div>
+                <div class="flex gap-2 mt-3">
+                    <button onclick="exportCSV()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載調查CSV</button>
+                    <button onclick="exportSHP()" class="flex-1 bg-gray-700 hover:bg-gray-800 text-white text-xs font-bold py-1.5 rounded transition">下載調查SHP</button>
+                </div>                
                 <div class="grid grid-cols-1 gap-2 pt-2 border-t">
                     <label class="flex items-center justify-center w-full bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold py-2 rounded cursor-pointer transition">
                         <i class="fa-solid fa-file-import mr-1"></i>匯入 GPX 航跡
