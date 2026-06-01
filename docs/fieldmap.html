@@ -505,7 +505,7 @@
         // ==========================================
         // 6. GAS 雲端 API 介接與「不覆蓋」防護上傳功能
         // ==========================================
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzudqAB8L1jULCuwBxZw07f0ogy2K7T8Lz0Nqjbh3KXlMyb1X7R6e9q-LAlKUhPywaG/exec";
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxacmIyOnY6eIKyx1MO00ku_3ekkgibEkx6ek4QZdV4UAmM_nmWQXUsW4BlWvsPfUAw/exec";
 
         function fetchDriveData() {
             if(!GAS_API_URL || GAS_API_URL.includes("請在此輸入")) return showToast("請先在程式碼中設定 GAS_API_URL", "error");
@@ -520,7 +520,7 @@
                     } catch (e) {
                         console.error("GAS 錯誤回傳內容:", text);
                         if(text.includes("<html") || text.includes("<body")) {
-                            throw new Error("GAS 權限錯誤！請確認部署時有選擇「所有人 (Anyone)」");
+                            throw new Error("GAS 權限錯誤！請確認部署時有選擇「所有人 (Anyone)」並使用新版本部署。");
                         }
                         throw new Error("雲端資料夾內的 JSON 格式損壞，請檢查檔案內容");
                     }
@@ -542,7 +542,7 @@
                     const cached = localStorage.getItem('webgis_drive_layers');
                     if (cached) {
                         processDriveLayers(JSON.parse(cached));
-                        showToast(`同步失敗(${err.message.substring(0,15)}...)，已載入離線備份`, "error");
+                        showToast(`同步失敗(${err.message.substring(0,25)}...)，已載入離線備份`, "error");
                     } else {
                         showToast(`同步失敗: ${err.message}`, "error");
                     }
@@ -598,7 +598,6 @@
 
             showToast("上傳資料中...");
             
-            // 🌟 核心防護修改：採用精準到「秒」的時間戳記命名，清除快取後再度上傳時，將在雲端保留為獨立檔案而不被覆蓋！
             const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -619,7 +618,18 @@
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 redirect: "follow"
             })
-            .then(res => res.json())
+            .then(async res => {
+                const text = await res.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error("GAS 錯誤回傳內容:", text);
+                    if(text.includes("<html") || text.includes("<body")) {
+                        throw new Error("GAS 權限錯誤！請確認部署時有選擇「所有人 (Anyone)」並建立新版本部署。");
+                    }
+                    throw new Error("GAS 回傳格式異常，請確認 code.gs 內 FOLDER_ID 是否正確填入與部署");
+                }
+            })
             .then(result => {
                 if(result.status === "success") {
                     showToast(result.message);
