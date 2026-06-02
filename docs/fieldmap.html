@@ -5,23 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>野外調查 Web GIS 系統</title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
-    <!-- Proj4js for EPSG:3826 (TWD97) Conversion -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
     
-    <!-- toGeoJSON for GPX & KML parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
     
-    <!-- shp-write for Shapefile export -->
     <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
     
-    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
     <style>
@@ -69,10 +63,8 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <!-- Map Container -->
     <div id="map"></div>
 
-    <!-- UI Overlay: Control Panel -->
     <div class="absolute top-4 right-4 w-80 glass-panel rounded-xl flex flex-col max-h-[90vh] overflow-hidden">
         
         <div class="bg-blue-600 text-white p-3 rounded-t-sm flex justify-between items-center">
@@ -82,14 +74,13 @@
 
         <div id="panel-content" class="overflow-y-auto p-4 space-y-6">
             
-            <!-- 1. 調查點位與工具 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
                 <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📍 調查點位與測量</h2>
                 <input type="text" id="point-remark" placeholder="輸入備註說明..." class="w-full text-sm p-2 mb-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400">
                 <button onclick="recordPoint()" class="w-full bg-green-700 hover:bg-green-800 text-white font-bold py-2 px-4 rounded text-xs transition mb-2">
                     <i class="fa-solid fa-location-crosshairs mr-1"></i> 獲取座標並記錄打點
                 </button>
-                <div id="record-status" class="text-xs text-gray-500 mt-2 text-center">尚未記錄任何點位</div>
+                <div id="record-status" class="text-xs text-gray-500 mt-2 text-center">尚未記錄 any 點位</div>
                 
                 <div class="border-t mt-3 pt-2 space-y-2">
                     <button id="btn-measure" onclick="toggleMeasure()" class="w-full bg-gray-700 hover:bg-blue-600 text-white text-xs font-bold py-1.5 rounded transition flex items-center justify-center">
@@ -106,14 +97,11 @@
                 </div>
             </div>
 
-            <!-- 2. 雲端同步與本機工具 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">☁️ 雲端與本機工具</h2>
+                <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">☁️ 控制台工具</h2>
                 
                 <div class="grid grid-cols-1 gap-2 mb-2 mt-2">
-                    <!-- 🌟 雲端自動讀取 JSON 與 KML -->
                     <button onclick="fetchDriveData()" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>同步雲端圖層 (KML/JSON)</button>
-                    <!-- 上傳防覆蓋機制 -->
                     <button onclick="uploadToDrive()" class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold py-2 rounded transition"><i class="fa-solid fa-cloud-arrow-up mr-1"></i>上傳本機打點紀錄至雲端</button>
                 </div>
 
@@ -137,19 +125,16 @@
                 </div>
             </div>
 
-            <!-- 3. 圖層管理器 -->
             <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex-1">
                 <h2 class="text-md font-bold mb-2 text-blue-700 border-b pb-1">📚 圖層管理 (拖拉排序)</h2>
                 <p class="text-[10px] text-gray-500 mb-2">上層圖層會覆蓋下層，請拖曳 = 符號調整。</p>
                 <ul id="layer-list" class="space-y-2">
-                    <!-- JS 動態生成 -->
-                </ul>
+                    </ul>
             </div>
             
         </div>
     </div>
 
-    <!-- UI Overlay: Loading Toast -->
     <div id="toast" class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-opacity duration-300 opacity-0 pointer-events-none z-[2000]">
         訊息通知
     </div>
@@ -160,7 +145,14 @@
         // ==========================================
         proj4.defs("EPSG:3826", "+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
 
-        const map = L.map('map', { zoomControl: false }).setView([23.6978, 120.9605], 8);
+        // 🌟 點擊易用性優化：啟用 Canvas 引擎並擴大「隱形點擊容差」至 15 像素，解決極細線條或微小點位點不到的問題！
+        const customRenderer = L.canvas({ tolerance: 15 });
+
+        const map = L.map('map', { 
+            zoomControl: false,
+            renderer: customRenderer
+        }).setView([23.6978, 120.9605], 8);
+
         L.control.zoom({ position: 'topleft' }).addTo(map);
 
         let collectedPoints = { type: "FeatureCollection", features: [] };
@@ -280,7 +272,8 @@
         // 4. 打點與本機快取功能
         // ==========================================
         let pointsLayer = L.geoJSON(null, {
-            pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: "#ff0000", color: "#ffffff", weight: 1, opacity: 1, fillOpacity: 0.8 }),
+            // 點擊判定優化：擴大圓半徑並加粗白邊，防止打點在手機上點不到
+            pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 7, fillColor: "#ff0000", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.8 }),
             onEachFeature: (feature, layer) => layer.bindPopup(`<b>備註:</b> ${feature.properties.remark}<br><b>時間:</b> ${feature.properties.time}<br><b>TWD97:</b> X:${feature.properties.twd97X}, Y:${feature.properties.twd97Y}`)
         });
 
@@ -355,9 +348,8 @@
         }
 
         // ==========================================
-        // 6. GAS 雲端 API 介接 (JSON & KML 同步)
+        // 6. GAS 雲端 API 介接 (JSON & KML 同步與著色處理)
         // ==========================================
-        // ⚠️ 確保這裡是您最新發布部署的 GAS 網址！
         const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxklBIXQAuzDe5tusWe6e6pp3e02RrNwAQ2clczRA4WHx9yAPH-pe_saY302HvM0Klh/exec";
 
         function fetchDriveData() {
@@ -394,7 +386,9 @@
                 const isKML = file.name.toLowerCase().endsWith('.kml');
 
                 if (isKML) {
-                    // 解析 KML (自帶 ArcGIS 顏色)
+                    // ==========================================
+                    // 處理 KML 檔案：自帶 ArcGIS 顏色與點擊優化
+                    // ==========================================
                     try {
                         const kmlDom = new DOMParser().parseFromString(file.content, 'text/xml');
                         const geoJson = toGeoJSON.kml(kmlDom);
@@ -407,6 +401,17 @@
                                     fillOpacity: feature.properties['fill-opacity'] || 0.5
                                 };
                             },
+                            // 🌟 點擊易用性優化：將 KML 中的點特徵轉換為大圓標與鮮明外框，配合 Canvas 容差極易選取
+                            pointToLayer: function(feature, latlng) {
+                                return L.circleMarker(latlng, {
+                                    radius: 7,
+                                    fillColor: feature.properties.fill || feature.properties.stroke || '#ff0000',
+                                    color: "#ffffff",
+                                    weight: 2,
+                                    opacity: 1,
+                                    fillOpacity: 0.8
+                                });
+                            },
                             onEachFeature: (feature, layer) => {
                                 let popup = `<b>來源:</b> ${file.name}<br>`;
                                 if (feature.properties.name) popup += `<b>名稱:</b> ${feature.properties.name}<br>`;
@@ -416,7 +421,9 @@
                         });
                     } catch(e) { console.error("KML 錯誤", e); return; }
                 } else {
-                    // 解析 JSON (TWD97 轉換與 color 欄位)
+                    // ==========================================
+                    // 處理 JSON 檔案：TWD97 座標與屬性解析
+                    // ==========================================
                     let isTWD97 = false;
                     if (file.content && file.content.crs && file.content.crs.properties && file.content.crs.properties.name) {
                         const crsName = file.content.crs.properties.name.toUpperCase();
@@ -438,6 +445,18 @@
                                 weight: (feature.properties && feature.properties.weight) ? feature.properties.weight : 2,
                                 fillOpacity: 0.6
                             };
+                        },
+                        // 🌟 點擊易用性優化：將 JSON 中的點位一併轉換為圓餅圖標，大幅增加碰觸感應範圍
+                        pointToLayer: function(feature, latlng) {
+                            const ptColor = (feature.properties && feature.properties.color) ? feature.properties.color : "#3b82f6";
+                            return L.circleMarker(latlng, {
+                                radius: 7, 
+                                fillColor: ptColor, 
+                                color: "#ffffff", 
+                                weight: 2, 
+                                opacity: 1, 
+                                fillOpacity: 0.8
+                            });
                         },
                         onEachFeature: (feature, layer) => {
                             let popup = `<b>來源:</b> ${file.name}<br>`;
@@ -497,7 +516,7 @@
                 const geoJson = toGeoJSON.gpx(new DOMParser().parseFromString(evt.target.result, 'text/xml'));
                 const gpxLayer = L.geoJSON(geoJson, {
                     style: { color: '#ff00ff', weight: 4, opacity: 0.8 },
-                    pointToLayer: (feat, latlng) => L.circleMarker(latlng, { radius: 4, color: '#ff00ff' }),
+                    pointToLayer: (feat, latlng) => L.circleMarker(latlng, { radius: 5, color: '#ff00ff', fillColor: '#ffffff', weight: 2, fillOpacity: 1 }),
                     onEachFeature: (f, l) => l.bindPopup(f.properties.name || "GPX 軌跡")
                 });
                 
@@ -514,6 +533,7 @@
                 const geoJson = toGeoJSON.kml(new DOMParser().parseFromString(evt.target.result, 'text/xml'));
                 const kmlLayer = L.geoJSON(geoJson, {
                     style: (feature) => ({ color: feature.properties.stroke || '#ff0000', weight: feature.properties['stroke-width'] || 2, fillColor: feature.properties.fill || feature.properties.stroke || '#ff0000', fillOpacity: feature.properties['fill-opacity'] || 0.5 }),
+                    pointToLayer: (feature, latlng) => L.circleMarker(latlng, { radius: 7, fillColor: feature.properties.fill || feature.properties.stroke || '#ff0000', color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.8 }),
                     onEachFeature: (f, l) => l.bindPopup(`<b>${f.properties.name || 'KML'}</b><br>${f.properties.description || ''}`)
                 });
                 
