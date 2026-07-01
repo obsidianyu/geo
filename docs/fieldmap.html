@@ -163,10 +163,19 @@
         // ==========================================
         const baseLayerDefinitions = [
             { id: 'nlsc_land', name: '公有土地地籍圖', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/LAND_OPENDATA/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { layers: 'LAND_SECT', format: 'image/png', transparent: true, attribution: '© NLSC' } },
-            { id: 'cgs_sensitive', name: '地質敏感區 (綜合)', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { layers: 'GSA', format: 'image/png', transparent: true, attribution: '© NLSC' } },
-            { id: 'cgs_landslide', name: '山崩與地滑敏感區', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive2/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { layers: 'GSA_L', format: 'image/png', transparent: true, attribution: '© NLSC' } },
-            { id: 'osm', name: 'OpenStreetMap', type: 'tile', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', options: { attribution: '© OSM', maxZoom: 19 } },
-            { id: 'arcgis_sat', name: 'ArcGIS 衛星影像', type: 'tile', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', options: { attribution: '© ESRI', maxZoom: 19 } },
+            { id: 'EGMS_08', name: '岩屑崩滑潛勢圖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/EGMS_08/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+			{ id: 'EGMS_02', name: '岩體滑動潛勢圖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/EGMS_02/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+			{ id: 'EGMS_07', name: '落石潛勢圖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/EGMS_07/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+			{ id: 'HistoryLS', name: '歷史山崩目錄', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/HistoryLS/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+			{ id: 'LFI_01', name: '潛在大規模崩塌主崩崖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/LFI_01/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+			{ id: 'EGMS_04', name: '老山崩', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/EGS_04/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '地礦中心', maxZoom: 19 }},
+            { id: 'cgs_sensitive', name: '地質敏感區 (地下水補助及地質遺跡)', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { layers: 'GSA', format: 'image/png', transparent: true, attribution: '© NLSC' } },
+            { id: 'cgs_landslide', name: '山崩與地滑地質敏感區', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/GeoSensitive2/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { layers: 'GSA_L', format: 'image/png', transparent: true, attribution: '© NLSC' } },
+			{ id: 'gm50000', name: '五萬分之一全島無接縫地質圖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/gm50000/GoogleMapsCompatible/{z}/{x}/{y}.png', options: { layers: 'GSA_L', format: 'image/png', transparent: true, attribution: '© NLSC' } },
+            { id: 'shadow20', name: '光達 6m 多向陰影圖', type: 'tile', url: 'https://landslide.geologycloud.tw/jlwmts/jetlink/Shadw20/GoogleMapsCompatible/{z}/{x}/{y}.png',options: { attribution: '© 國土測繪中心', maxZoom: 19 }},
+			{ id: 'osm', name: 'OpenStreetMap', type: 'tile', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', options: { attribution: '© OSM', maxZoom: 19 } },
+			{ id: 'happyman', name: '台灣 1/5000 地形圖', type: 'tile', url: 'https://tile.happyman.idv.tw/mp/service?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=tw5k2000&STYLE=default&TILEMATRIXSET=gm_grid&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png',options: { attribution: '魯地圖', maxZoom: 19 }},
+			{ id: 'arcgis_sat', name: 'ArcGIS 衛星影像', type: 'tile', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', options: { attribution: '© ESRI', maxZoom: 19 } },
             { id: 'nlsc_emap', name: '台灣通用電子地圖', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { attribution: '© 國土測繪中心', maxZoom: 20 } },
             { id: 'nlsc_ortho', name: '正射影像(混合)', type: 'tile', url: 'https://wmts.nlsc.gov.tw/wmts/PHOTO_MIX/default/GoogleMapsCompatible/{z}/{y}/{x}', options: { attribution: '© 國土測繪中心', maxZoom: 20 } }
         ];
