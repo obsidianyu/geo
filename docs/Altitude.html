@@ -286,14 +286,28 @@
             const bRad = beta * rad;
             const gRad = gamma * rad;
 
-            // 簡化計算傾角 (Dip)
-            let dipRad = Math.acos(Math.cos(bRad) * Math.cos(gRad));
+            // 1. 嚴謹計算真實傾角 (Dip)
+            // 將乘積限制在 -1 到 1 之間，防止浮點數誤差導致 NaN
+            let cosDip = Math.cos(bRad) * Math.cos(gRad);
+            cosDip = Math.max(-1, Math.min(1, cosDip));
+            let dipRad = Math.acos(cosDip);
             let dip = dipRad / rad;
 
-            // 簡化計算走向 (Strike)
-            let strike = (alpha + 90) % 360;
+            // 2. 投影重力向量，計算手機本地的「最斜方向」(Local Dip Direction)
+            // Gx (左右傾斜在 X 軸的投影) 與 Gy (前後傾斜在 Y 軸的投影)
+            let Gx = Math.sin(gRad);
+            let Gy = Math.sin(bRad) * Math.cos(gRad);
+            
+            // localDipDir 是以手機頂部為 0 度，算出最傾斜向下的本地方位角
+            let localDipDir = Math.atan2(Gx, Gy) * (180 / Math.PI);
 
-            // 避免異常計算，更新 UI
+            // 3. 結合絕對羅盤方位 (alpha)，算出岩層真實的傾斜方向 (True Dip Direction)
+            let dipDir = (alpha + localDipDir + 360) % 360;
+
+            // 4. 根據地質右手定則，走向 (Strike) 垂直於傾斜方向 (逆時針轉 90 度)
+            let strike = (dipDir - 90 + 360) % 360;
+
+            // 避免異常計算，更新 UI (加上四捨五入確保輸出為整數)
             if (!isNaN(strike) && !isNaN(dip)) {
                 sensorData.strike = Math.round(strike);
                 sensorData.dip = Math.round(dip);
