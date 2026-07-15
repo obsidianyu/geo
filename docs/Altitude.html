@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>網頁版地質羅盤</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1, h2 { color: #333; margin-top: 0; }
+        button { background-color: #0056b3; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; }
+        button:hover { background-color: #004494; }
+        .data-row { display: flex; justify-content: space-between; margin: 10px 0; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .value { font-weight: bold; color: #d9534f; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>地質羅盤與 GPS</h1>
+        <button id="startBtn">啟動感測器與 GPS (iOS 必須點擊)</button>
+    </div>
+
+    <div class="card">
+        <h2>GPS 資訊</h2>
+        <div class="data-row"><span>緯度 (Latitude):</span> <span class="value" id="lat">等待數據...</span></div>
+        <div class="data-row"><span>經度 (Longitude):</span> <span class="value" id="lon">等待數據...</span></div>
+        <div class="data-row"><span>誤差範圍:</span> <span class="value" id="acc">等待數據...</span></div>
+    </div>
+
+    <div class="card">
+        <h2>岩層位態 (將手機平貼岩面)</h2>
+        <div class="data-row"><span>走向 (Strike):</span> <span class="value" id="strike">等待數據...</span></div>
+        <div class="data-row"><span>傾角 (Dip):</span> <span class="value" id="dip">等待數據...</span></div>
+        <div class="data-row" style="font-size: 0.85em; color: gray;">
+            <span>原始數據 (α, β, γ):</span> <span id="raw-data">-</span>
+        </div>
+    </div>
+
+    <script>
+        const btn = document.getElementById('startBtn');
+        
+        btn.addEventListener('click', async () => {
+            // 1. 取得 GPS 座標準位
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        document.getElementById('lat').innerText = position.coords.latitude.toFixed(5) + "°";
+                        document.getElementById('lon').innerText = position.coords.longitude.toFixed(5) + "°";
+                        document.getElementById('acc').innerText = "±" + position.coords.accuracy.toFixed(1) + " 公尺";
+                    },
+                    (error) => console.error("GPS 錯誤:", error),
+                    { enableHighAccuracy: true }
+                );
+            } else {
+                alert("您的瀏覽器不支援 GPS 功能。");
+            }
+
+            // 2. 處理陀螺儀/羅盤權限 (針對 iOS 13+ 的安全性要求)
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permissionState = await DeviceOrientationEvent.requestPermission();
+                    if (permissionState === 'granted') {
+                        startOrientation();
+                    } else {
+                        alert("需要感測器權限才能計算位態！");
+                    }
+                } catch (error) {
+                    console.error("請求權限失敗:", error);
+                }
+            } else {
+                // 非 iOS 設備或舊版瀏覽器，直接啟動
+                startOrientation();
+            }
+        });
+
+        function startOrientation() {
+            // 監聽設備方向事件
+            window.addEventListener('deviceorientation', (event) => {
+                let alpha = event.alpha; // Z軸旋轉 (0-360)
+                let beta = event.beta;   // X軸傾斜 (-180 到 180)
+                let gamma = event.gamma; // Y軸傾斜 (-90 到 90)
+
+                if (alpha === null || beta === null || gamma === null) return;
+
+                // iOS 專屬：使用 webkitCompassHeading 取得絕對正北方位
+                if (event.webkitCompassHeading) {
+                    alpha = event.webkitCompassHeading;
+                }
+
+                // --- 岩層位態計算 (基礎近似演算法) ---
+                // 將角度轉為弧度
+                const rad = Math.PI / 180;
+                const bRad = beta * rad;
+                const gRad = gamma * rad;
+
+                // 計算傾角 (Dip)
+                // 理論上，平貼時的傾角可由 beta 和 gamma 構成的向量求得
+                let dipRad = Math.acos(Math.cos(bRad) * Math.cos(gRad));
+                let dip = dipRad / rad;
+
+                // 計算走向 (Strike)
+                // 這裡做一個簡單的轉換：根據 alpha (方位) 以及手機的傾斜方向來推算走向
+                // 由於走向垂直於傾斜方向，我們通常對方位角加減 90 度
+                let strike = (alpha + 90) % 360; 
+                // (注意：真實地質運算中，需判斷 beta/gamma 的正負值來決定加減 90 還是 270，以確保符合右手定則)
+
+                // 更新 UI
+                document.getElementById('raw-data').innerText = `${alpha.toFixed(1)}°, ${beta.toFixed(1)}°, ${gamma.toFixed(1)}°`;
+                document.getElementById('dip').innerText = dip.toFixed(1) + "°";
+                document.getElementById('strike').innerText = strike.toFixed(1) + "°";
+            }, true);
+        }
+    </script>
+</body>
+</html>
