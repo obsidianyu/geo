@@ -1,116 +1,266 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>網頁版地質羅盤</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f4f9; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1, h2 { color: #333; margin-top: 0; }
-        button { background-color: #0056b3; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; }
-        button:hover { background-color: #004494; }
-        .data-row { display: flex; justify-content: space-between; margin: 10px 0; padding-bottom: 10px; border-bottom: 1px solid #eee; }
-        .value { font-weight: bold; color: #d9534f; }
-    </style>
-</head>
-<body>
+import React, { useState, useEffect } from 'react';
+import { Compass, Map, List, Camera, Save, Download, MapPin, AlertTriangle, Layers, Edit3 } from 'lucide-react';
 
-    <div class="card">
-        <h1>地質羅盤與 GPS</h1>
-        <button id="startBtn">啟動感測器與 GPS (iOS 必須點擊)</button>
-    </div>
+const FieldCompassApp = () => {
+  const [activeTab, setActiveTab] = useState('measure');
+  const [measurements, setMeasurements] = useState([]);
+  
+  // 模擬即時感測器狀態
+  const [sensorData, setSensorData] = useState({
+    strike: 0, dip: 0, lat: 0, lng: 0, accuracy: 0
+  });
 
-    <div class="card">
-        <h2>GPS 資訊</h2>
-        <div class="data-row"><span>緯度 (Latitude):</span> <span class="value" id="lat">等待數據...</span></div>
-        <div class="data-row"><span>經度 (Longitude):</span> <span class="value" id="lon">等待數據...</span></div>
-        <div class="data-row"><span>誤差範圍:</span> <span class="value" id="acc">等待數據...</span></div>
-    </div>
+  // 表單狀態
+  const [currentType, setCurrentType] = useState('節理面');
+  const [remark, setRemark] = useState('');
+  const [isLocked, setIsLocked] = useState(false);
 
-    <div class="card">
-        <h2>岩層位態 (將手機平貼岩面)</h2>
-        <div class="data-row"><span>走向 (Strike):</span> <span class="value" id="strike">等待數據...</span></div>
-        <div class="data-row"><span>傾角 (Dip):</span> <span class="value" id="dip">等待數據...</span></div>
-        <div class="data-row" style="font-size: 0.85em; color: gray;">
-            <span>原始數據 (α, β, γ):</span> <span id="raw-data">-</span>
+  // 模擬啟動感測器 (實務上這裡會放 DeviceOrientation 與 Geolocation)
+  useEffect(() => {
+    let interval;
+    if (!isLocked && activeTab === 'measure') {
+      // 模擬數值跳動，實務上替換為真實 API
+      navigator.geolocation.getCurrentPosition(
+        pos => setSensorData(prev => ({ ...prev, lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy })),
+        err => console.log(err),
+        { enableHighAccuracy: true }
+      );
+
+      interval = setInterval(() => {
+        setSensorData(prev => ({
+          ...prev,
+          strike: Math.floor(Math.random() * 360),
+          dip: Math.floor(Math.random() * 90)
+        }));
+      }, 500);
+    }
+    return () => clearInterval(interval);
+  }, [isLocked, activeTab]);
+
+  // 儲存量測資料
+  const handleSave = () => {
+    if (!isLocked) {
+      alert("請先鎖定數值！");
+      return;
+    }
+    
+    const newData = {
+      id: Date.now(),
+      time: new Date().toLocaleString('zh-TW'),
+      type: currentType,
+      strike: sensorData.strike,
+      dip: sensorData.dip,
+      lat: sensorData.lat,
+      lng: sensorData.lng,
+      remark: remark,
+      hasPhoto: false // 預留照片標記
+    };
+
+    setMeasurements([newData, ...measurements]);
+    
+    // 重置表單為下一次量測準備
+    setIsLocked(false);
+    setRemark('');
+    alert(`成功儲存第 ${measurements.length + 1} 筆資料！`);
+  };
+
+  // 匯出 KML 功能
+  const exportKML = () => {
+    if (measurements.length === 0) {
+      alert("目前沒有資料可以匯出");
+      return;
+    }
+
+    let kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>地質量測紀錄_${new Date().toLocaleDateString()}</name>
+`;
+
+    measurements.forEach(m => {
+      kmlContent += `    <Placemark>
+      <name>${m.type} (${m.strike}/${m.dip})</name>
+      <description>
+        時間: ${m.time}\n
+        走向/傾角: ${m.strike}° / ${m.dip}°\n
+        類型: ${m.type}\n
+        備註: ${m.remark}
+      </description>
+      <Point>
+        <coordinates>${m.lng},${m.lat},0</coordinates>
+      </Point>
+    </Placemark>\n`;
+    });
+
+    kmlContent += `  </Document>\n</kml>`;
+
+    // 觸發下載
+    const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `GeoData_${Date.now()}.kml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // --- 畫面渲染組件 ---
+  const renderMeasureTab = () => (
+    <div className="p-4 space-y-4 pb-24">
+      {/* 羅盤顯示區 */}
+      <div className={`p-6 rounded-2xl shadow-lg text-center transition-colors duration-300 ${isLocked ? 'bg-green-50' : 'bg-white'}`}>
+        <h2 className="text-gray-500 font-bold mb-2">走向 / 傾角 (Strike / Dip)</h2>
+        <div className="text-6xl font-black text-gray-800 flex justify-center items-baseline gap-2">
+          {sensorData.strike.toString().padStart(3, '0')}<span className="text-3xl">°</span> 
+          <span className="text-gray-300 font-light">/</span> 
+          {sensorData.dip.toString().padStart(2, '0')}<span className="text-3xl">°</span>
         </div>
+        <div className="mt-4 flex justify-between items-center text-sm text-gray-500 bg-gray-100 p-3 rounded-lg">
+          <div className="flex items-center gap-1"><MapPin size={16}/> {sensorData.lat ? sensorData.lat.toFixed(5) : '---'} , {sensorData.lng ? sensorData.lng.toFixed(5) : '---'}</div>
+          <div>誤差 ±{sensorData.accuracy ? sensorData.accuracy.toFixed(0) : '-'}m</div>
+        </div>
+
+        <button 
+          onClick={() => setIsLocked(!isLocked)}
+          className={`mt-4 w-full py-4 rounded-xl font-bold text-lg shadow-md transition-all active:scale-95 ${
+            isLocked ? 'bg-yellow-500 text-white' : 'bg-blue-600 text-white'
+          }`}
+        >
+          {isLocked ? '解鎖重新讀取' : '鎖定數值 (Lock)'}
+        </button>
+      </div>
+
+      {/* 弱面類型選擇 (大按鈕) */}
+      <div>
+        <h3 className="font-bold text-gray-700 mb-2">弱面類型</h3>
+        <div className="grid grid-cols-3 gap-2">
+          {['層面', '節理面', '坡面'].map(type => (
+            <button
+              key={type}
+              onClick={() => setCurrentType(type)}
+              className={`py-3 rounded-lg font-bold border-2 transition-all ${
+                currentType === type ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500'
+              }`}
+            >
+              {type === '層面' && <Layers className="mx-auto mb-1" size={20}/>}
+              {type === '節理面' && <Edit3 className="mx-auto mb-1" size={20}/>}
+              {type === '坡面' && <AlertTriangle className="mx-auto mb-1" size={20}/>}
+              {type}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 附加資訊 */}
+      <div className="space-y-2">
+        <h3 className="font-bold text-gray-700">附加資訊</h3>
+        <button className="w-full bg-gray-100 text-gray-700 py-4 rounded-lg flex items-center justify-center gap-2 border border-gray-300 font-semibold active:bg-gray-200">
+          <Camera size={20} /> 拍攝現地照片與標註
+        </button>
+        <textarea 
+          placeholder="輸入地質特徵備註..." 
+          className="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+          rows="3"
+          value={remark}
+          onChange={(e) => setRemark(e.target.value)}
+        ></textarea>
+      </div>
+
+      {/* 儲存大按鈕 */}
+      <button 
+        onClick={handleSave}
+        className={`w-full py-5 rounded-xl font-black text-xl shadow-lg flex justify-center items-center gap-2 active:scale-95 ${
+          isLocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        <Save size={24} /> 儲存紀錄 (SAVE)
+      </button>
     </div>
+  );
 
-    <script>
-        const btn = document.getElementById('startBtn');
-        
-        btn.addEventListener('click', async () => {
-            // 1. 取得 GPS 座標準位
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(
-                    (position) => {
-                        document.getElementById('lat').innerText = position.coords.latitude.toFixed(5) + "°";
-                        document.getElementById('lon').innerText = position.coords.longitude.toFixed(5) + "°";
-                        document.getElementById('acc').innerText = "±" + position.coords.accuracy.toFixed(1) + " 公尺";
-                    },
-                    (error) => console.error("GPS 錯誤:", error),
-                    { enableHighAccuracy: true }
-                );
-            } else {
-                alert("您的瀏覽器不支援 GPS 功能。");
-            }
+  const renderListTab = () => (
+    <div className="p-4 space-y-4 pb-24 h-screen overflow-y-auto bg-gray-50">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-gray-800">已儲存紀錄 ({measurements.length})</h2>
+        <button onClick={exportKML} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow hover:bg-blue-700">
+          <Download size={18} /> 匯出 KML
+        </button>
+      </div>
 
-            // 2. 處理陀螺儀/羅盤權限 (針對 iOS 13+ 的安全性要求)
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const permissionState = await DeviceOrientationEvent.requestPermission();
-                    if (permissionState === 'granted') {
-                        startOrientation();
-                    } else {
-                        alert("需要感測器權限才能計算位態！");
-                    }
-                } catch (error) {
-                    console.error("請求權限失敗:", error);
-                }
-            } else {
-                // 非 iOS 設備或舊版瀏覽器，直接啟動
-                startOrientation();
-            }
-        });
+      {measurements.length === 0 ? (
+        <div className="text-center text-gray-400 py-10">尚無資料，請至測量頁面記錄。</div>
+      ) : (
+        <div className="space-y-3">
+          {measurements.map(m => (
+            <div key={m.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative">
+              <span className="absolute top-4 right-4 text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">{m.time.split(' ')[1]}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2 py-1 text-xs font-bold rounded-md ${
+                  m.type === '層面' ? 'bg-blue-100 text-blue-700' : 
+                  m.type === '坡面' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'
+                }`}>{m.type}</span>
+                <span className="font-bold text-lg">{m.strike}° / {m.dip}°</span>
+              </div>
+              {m.remark && <p className="text-gray-600 text-sm mb-2">{m.remark}</p>}
+              <div className="text-xs text-gray-400 flex items-center gap-1"><MapPin size={12}/> {m.lng.toFixed(4)}, {m.lat.toFixed(4)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
-        function startOrientation() {
-            // 監聽設備方向事件
-            window.addEventListener('deviceorientation', (event) => {
-                let alpha = event.alpha; // Z軸旋轉 (0-360)
-                let beta = event.beta;   // X軸傾斜 (-180 到 180)
-                let gamma = event.gamma; // Y軸傾斜 (-90 到 90)
+  // 地圖與分析的 Placeholder
+  const renderPlaceholder = (title, icon) => (
+    <div className="h-screen flex flex-col items-center justify-center text-gray-400 pb-24">
+      {icon}
+      <h2 className="text-xl font-bold mt-4">{title}</h2>
+      <p className="text-sm mt-2 max-w-xs text-center">此功能將整合 Leaflet.js 地圖或 D3.js 繪製投影圓，敬請期待後續開發階段。</p>
+    </div>
+  );
 
-                if (alpha === null || beta === null || gamma === null) return;
+  return (
+    <div className="max-w-md mx-auto bg-gray-50 h-screen overflow-hidden flex flex-col relative font-sans selection:bg-blue-200">
+      {/* 頂部 Header */}
+      <header className="bg-slate-900 text-white p-4 shadow-md z-10 flex justify-between items-center">
+        <div>
+          <h1 className="text-lg font-black tracking-wider">GEO-COMPASS Pro</h1>
+          <p className="text-xs text-slate-400">數位野外地質助理</p>
+        </div>
+        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
+      </header>
 
-                // iOS 專屬：使用 webkitCompassHeading 取得絕對正北方位
-                if (event.webkitCompassHeading) {
-                    alpha = event.webkitCompassHeading;
-                }
+      {/* 內容區塊 */}
+      <main className="flex-1 overflow-y-auto">
+        {activeTab === 'measure' && renderMeasureTab()}
+        {activeTab === 'list' && renderListTab()}
+        {activeTab === 'map' && renderPlaceholder('地圖視角', <Map size={48} className="text-blue-300"/>)}
+        {activeTab === 'analysis' && renderPlaceholder('赤平投影與破壞分析', <Compass size={48} className="text-purple-300"/>)}
+      </main>
 
-                // --- 岩層位態計算 (基礎近似演算法) ---
-                // 將角度轉為弧度
-                const rad = Math.PI / 180;
-                const bRad = beta * rad;
-                const gRad = gamma * rad;
+      {/* 底部導航列 */}
+      <nav className="absolute bottom-0 w-full bg-white border-t border-gray-200 flex justify-around pb-safe pt-2 px-2 shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-20">
+        <NavButton icon={<Compass size={24} />} label="量測" active={activeTab === 'measure'} onClick={() => setActiveTab('measure')} />
+        <NavButton icon={<List size={24} />} label="紀錄" active={activeTab === 'list'} onClick={() => setActiveTab('list')} />
+        <NavButton icon={<Map size={24} />} label="地圖" active={activeTab === 'map'} onClick={() => setActiveTab('map')} />
+        <NavButton icon={<AlertTriangle size={24} />} label="分析" active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} />
+      </nav>
+      {/* iPhone 底部安全區佔位 */}
+      <div className="bg-white h-6 w-full absolute bottom-0 z-10"></div>
+    </div>
+  );
+};
 
-                // 計算傾角 (Dip)
-                // 理論上，平貼時的傾角可由 beta 和 gamma 構成的向量求得
-                let dipRad = Math.acos(Math.cos(bRad) * Math.cos(gRad));
-                let dip = dipRad / rad;
+const NavButton = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`flex flex-col items-center p-2 min-w-[70px] transition-colors ${active ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+  >
+    <div className={`${active ? 'scale-110' : 'scale-100'} transition-transform duration-200 mb-1`}>{icon}</div>
+    <span className="text-[10px] font-bold">{label}</span>
+  </button>
+);
 
-                // 計算走向 (Strike)
-                // 這裡做一個簡單的轉換：根據 alpha (方位) 以及手機的傾斜方向來推算走向
-                // 由於走向垂直於傾斜方向，我們通常對方位角加減 90 度
-                let strike = (alpha + 90) % 360; 
-                // (注意：真實地質運算中，需判斷 beta/gamma 的正負值來決定加減 90 還是 270，以確保符合右手定則)
-
-                // 更新 UI
-                document.getElementById('raw-data').innerText = `${alpha.toFixed(1)}°, ${beta.toFixed(1)}°, ${gamma.toFixed(1)}°`;
-                document.getElementById('dip').innerText = dip.toFixed(1) + "°";
-                document.getElementById('strike').innerText = strike.toFixed(1) + "°";
-            }, true);
-        }
-    </script>
-</body>
-</html>
+export default FieldCompassApp;
