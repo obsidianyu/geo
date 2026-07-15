@@ -43,20 +43,23 @@
         <!-- 內容區塊 -->
         <main id="main-content" class="flex-1 overflow-y-auto relative">
             
-            <!-- 量測分頁 (Measure Tab) 移除過多的 pb-24，改為 pb-6 -->
+            <!-- 量測分頁 (Measure Tab) -->
             <div id="tab-measure" class="p-4 space-y-4 pb-6 tab-content">
                 <!-- 羅盤顯示區 -->
                 <div id="compass-card" class="bg-white p-6 rounded-2xl shadow-lg text-center transition-colors duration-300">
-                    <h2 class="text-gray-500 font-bold mb-2">走向 / 傾角 (Strike / Dip)</h2>
+                    <!-- 新增：可切換走向與傾向的標題 -->
+                    <h2 id="mode-title" class="text-gray-500 font-bold mb-2 cursor-pointer flex justify-center items-center select-none active:scale-95 transition-transform" onclick="toggleDisplayMode()">
+                        傾向 / 傾角 (Dip Dir. / Dip) <i data-feather="refresh-ccw" class="w-4 h-4 ml-2 text-blue-500"></i>
+                    </h2>
                     <div class="text-6xl font-black text-gray-800 flex justify-center items-baseline gap-2">
-                        <span id="val-strike">000</span><span class="text-3xl">°</span> 
+                        <span id="val-primary">000</span><span class="text-3xl">°</span> 
                         <span class="text-gray-300 font-light">/</span> 
                         <span id="val-dip">00</span><span class="text-3xl">°</span>
                     </div>
                     <!-- 新增：方位角模式 (Quadrant Notation) -->
                     <div class="text-blue-600 font-semibold mt-1 text-lg" id="val-quadrant">N00°E / 00°SE</div>
                     
-                    <!-- 新增切換按鈕：點擊切換 WGS84 / TWD97 -->
+                    <!-- 切換按鈕：點擊切換 WGS84 / TWD97 -->
                     <div class="mt-4 flex justify-between items-center text-sm text-gray-500 bg-gray-100 p-3 rounded-lg cursor-pointer active:bg-gray-200 transition-colors" onclick="toggleCoordSystem()">
                         <div class="flex items-center gap-1">
                             <i data-feather="map-pin" class="w-4 h-4"></i> 
@@ -69,7 +72,7 @@
                     <button id="btn-lock" class="bg-blue-600 text-white mt-4 w-full py-4 rounded-xl font-bold text-lg shadow-md transition-all active:scale-95">
                         鎖定數值 (Lock)
                     </button>
-                    <!-- 新增：iOS 感測器啟動按鈕 -->
+                    <!-- iOS 感測器啟動按鈕 -->
                     <button id="btn-start-sensor" onclick="requestSensorPermission()" class="bg-emerald-600 text-white mt-2 w-full py-3 rounded-xl font-bold text-md shadow-md transition-all active:scale-95 hidden">
                         啟動羅盤感測器 (iOS 必點)
                     </button>
@@ -77,7 +80,7 @@
 
                 <!-- 弱面類型選擇 -->
                 <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                    <!-- 新增：露頭編號 -->
+                    <!-- 露頭編號 -->
                     <div class="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
                         <h3 class="font-bold text-gray-700">露頭編號 (Outcrop ID)</h3>
                         <div class="flex items-center gap-3 bg-gray-100 rounded-lg p-1">
@@ -100,7 +103,7 @@
                         </button>
                     </div>
 
-                    <!-- 新增：節理組別選擇 (預設顯示因為預設是節理面) -->
+                    <!-- 節理組別選擇 -->
                     <div id="joint-set-container" class="mt-4 pt-3 border-t border-gray-100">
                         <h3 class="font-bold text-gray-700 mb-2 text-sm">節理組別區分 (Joint Set)</h3>
                         <div class="grid grid-cols-4 gap-2">
@@ -127,7 +130,7 @@
                 </button>
             </div>
 
-            <!-- 紀錄分頁 (List Tab) 移除過多的 pb-24，改為 pb-6 -->
+            <!-- 紀錄分頁 (List Tab) -->
             <div id="tab-list" class="hidden p-4 space-y-4 pb-6 h-full bg-gray-50 tab-content">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-bold text-gray-800">已儲存紀錄 (<span id="list-count">0</span>)</h2>
@@ -137,7 +140,6 @@
                 </div>
                 
                 <div id="list-container" class="space-y-3">
-                    <!-- 紀錄列表將透過 JS 產生於此 -->
                     <div class="text-center text-gray-400 py-10" id="empty-state">尚無資料，請至測量頁面記錄。</div>
                 </div>
             </div>
@@ -157,7 +159,7 @@
 
         </main>
 
-        <!-- 底部導航列 (改為 Flex 元素 shrink-0 排列，不再使用 absolute，避免遮擋) -->
+        <!-- 底部導航列 -->
         <nav class="w-full bg-white border-t border-gray-200 flex justify-around pt-2 px-2 pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-20 shrink-0">
             <button onclick="switchTab('measure')" id="nav-measure" class="nav-btn text-blue-600 flex flex-col items-center p-2 min-w-[70px] transition-colors">
                 <div class="scale-110 transition-transform duration-200 mb-1"><i data-feather="compass"></i></div>
@@ -188,15 +190,16 @@
 
         // 狀態變數
         let measurements = [];
-        let sensorData = { strike: 0, dip: 0, lat: 0, lng: 0, accuracy: 0 };
+        let sensorData = { strike: 0, dipDir: 0, dip: 0, lat: 0, lng: 0, accuracy: 0 };
         let currentType = '節理面';
-        let currentJointSet = 'J1'; // 新增：目前節理組別
-        let outcropIndex = 1;       // 新增：露頭編號
+        let currentJointSet = 'J1'; 
+        let outcropIndex = 1;       
         let isLocked = false;
-        let coordSystem = 'WGS84'; // 'WGS84' 或是 'TWD97'
+        let coordSystem = 'WGS84'; 
+        let displayMode = 'dipDir'; // 預設顯示模式改為「傾向 (Dip Direction)」
 
         // DOM 元素快取
-        const elStrike = document.getElementById('val-strike');
+        const elPrimary = document.getElementById('val-primary');
         const elDip = document.getElementById('val-dip');
         const elLat = document.getElementById('val-lat');
         const elLng = document.getElementById('val-lng');
@@ -210,22 +213,32 @@
         const listContainer = document.getElementById('list-container');
         const listCount = document.getElementById('list-count');
         const emptyState = document.getElementById('empty-state');
-        
-        // 新增 DOM 快取
         const elOutcrop = document.getElementById('val-outcrop'); 
         const jointSetContainer = document.getElementById('joint-set-container'); 
         const btnStartSensor = document.getElementById('btn-start-sensor');
+
+        // 切換主畫面顯示模式 (走向 or 傾向)
+        function toggleDisplayMode() {
+            displayMode = displayMode === 'dipDir' ? 'strike' : 'dipDir';
+            const modeTitle = document.getElementById('mode-title');
+            if (displayMode === 'dipDir') {
+                modeTitle.innerHTML = '傾向 / 傾角 (Dip Dir. / Dip) <i data-feather="refresh-ccw" class="w-4 h-4 ml-2 text-blue-500"></i>';
+            } else {
+                modeTitle.innerHTML = '走向 / 傾角 (Strike / Dip) <i data-feather="refresh-ccw" class="w-4 h-4 ml-2 text-blue-500"></i>';
+            }
+            feather.replace();
+            updateSensorUI();
+        }
 
         // 切換座標系統
         function toggleCoordSystem() {
             coordSystem = coordSystem === 'WGS84' ? 'TWD97' : 'WGS84';
             document.getElementById('coord-label').innerText = coordSystem;
-            updateSensorUI(); // 立即更新畫面上的座標
+            updateSensorUI();
         }
 
         // 啟動真實感測器
         function startSensor() {
-            // 嘗試獲取真實 GPS (使用 watchPosition 持續更新)
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(
                     pos => {
@@ -239,17 +252,25 @@
                 );
             }
 
-            // 檢查是否需要顯示 iOS 的授權按鈕
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 btnStartSensor.classList.remove('hidden');
             } else {
-                // 非 iOS，直接啟動監聽真實感測器
                 window.addEventListener('deviceorientationabsolute', handleOrientation, true);
                 window.addEventListener('deviceorientation', handleOrientation, true);
             }
+
+            // 模擬數值跳動 (僅在無硬體事件觸發時供測試用)
+            simInterval = setInterval(() => {
+                if (!isLocked && typeof window.orientationEventTriggered === 'undefined') {
+                    sensorData.dipDir = Math.floor(Math.random() * 360);
+                    sensorData.dip = Math.floor(Math.random() * 90);
+                    sensorData.strike = (sensorData.dipDir - 90 + 360) % 360; // 嚴格 RHR
+                    updateSensorUI();
+                }
+            }, 500);
         }
 
-        // 處理 iOS 的權限請求 (綁定於按鈕)
+        // 處理 iOS 的權限請求
         function requestSensorPermission() {
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
@@ -268,37 +289,31 @@
         // 處理羅盤真實姿態轉換為走向傾角
         function handleOrientation(event) {
             if (isLocked) return;
+            window.orientationEventTriggered = true; // 停止模擬器跳動
 
             let alpha = event.alpha; 
             let beta = event.beta;   
             let gamma = event.gamma; 
 
-            // 若硬體無感測器資料則略過
             if (alpha === null || beta === null || gamma === null) return;
 
-            // iOS 優先使用絕對正北方位
             if (event.webkitCompassHeading) {
                 alpha = event.webkitCompassHeading;
             }
 
-            // 將角度轉為弧度計算
             const rad = Math.PI / 180;
             const bRad = beta * rad;
             const gRad = gamma * rad;
 
             // 1. 嚴謹計算真實傾角 (Dip)
-            // 將乘積限制在 -1 到 1 之間，防止浮點數誤差導致 NaN
             let cosDip = Math.cos(bRad) * Math.cos(gRad);
             cosDip = Math.max(-1, Math.min(1, cosDip));
             let dipRad = Math.acos(cosDip);
             let dip = dipRad / rad;
 
             // 2. 投影重力向量，計算手機本地的「最斜方向」(Local Dip Direction)
-            // Gx (左右傾斜在 X 軸的投影) 與 Gy (前後傾斜在 Y 軸的投影)
             let Gx = Math.sin(gRad);
             let Gy = Math.sin(bRad) * Math.cos(gRad);
-            
-            // localDipDir 是以手機頂部為 0 度，算出最傾斜向下的本地方位角
             let localDipDir = Math.atan2(Gx, Gy) * (180 / Math.PI);
 
             // 3. 結合絕對羅盤方位 (alpha)，算出岩層真實的傾斜方向 (True Dip Direction)
@@ -307,22 +322,20 @@
             // 4. 根據地質右手定則，走向 (Strike) 垂直於傾斜方向 (逆時針轉 90 度)
             let strike = (dipDir - 90 + 360) % 360;
 
-            // 避免異常計算，更新 UI (加上四捨五入確保輸出為整數)
-            if (!isNaN(strike) && !isNaN(dip)) {
+            if (!isNaN(strike) && !isNaN(dip) && !isNaN(dipDir)) {
                 sensorData.strike = Math.round(strike);
+                sensorData.dipDir = Math.round(dipDir);
                 sensorData.dip = Math.round(dip);
                 updateSensorUI();
             }
         }
 
-        // 變更露頭編號
         function changeOutcrop(delta) {
             outcropIndex += delta;
             if (outcropIndex < 1) outcropIndex = 1;
             elOutcrop.innerText = `OC-${outcropIndex.toString().padStart(2, '0')}`;
         }
 
-        // 設定節理組別
         function setJointSet(set) {
             currentJointSet = set;
             document.querySelectorAll('.joint-btn').forEach(btn => {
@@ -332,43 +345,47 @@
             if(activeBtn) activeBtn.className = 'joint-btn border-blue-600 bg-blue-50 text-blue-700 py-2 rounded-lg font-bold border-2 transition-all';
         }
 
-        // 轉換為象限方位角字串 (例如 N32°E / 85°SE)
-        function getQuadrantString(strike, dip) {
-            // 計算走向的象限
+        // 轉換為標準地質方位角字串 (確保北半球走向，並配合傾斜象限)
+        function getQuadrantString(strike, dipDir, dip) {
+            // 走向標準化 (永遠為 0-179 之間，NxxE 或 NxxW)
+            let normStrike = Math.round(strike) % 180;
             let qStrike = "";
-            if (strike >= 0 && strike < 90) qStrike = `N${strike}°E`;
-            else if (strike >= 90 && strike < 180) qStrike = `S${180 - strike}°E`;
-            else if (strike >= 180 && strike < 270) qStrike = `S${strike - 180}°W`;
-            else qStrike = `N${360 - strike}°W`;
+            if (normStrike >= 0 && normStrike <= 90) {
+                qStrike = `N${normStrike}°E`;
+            } else {
+                qStrike = `N${180 - normStrike}°W`;
+            }
 
-            // 計算傾斜方向的象限 (依據右手定則：走向加 90 度)
-            let dipDir = (strike + 90) % 360;
+            // 計算傾斜方向的象限
             let qDipDir = "";
-            if (dipDir >= 0 && dipDir < 90) qDipDir = "NE";
-            else if (dipDir >= 90 && dipDir < 180) qDipDir = "SE";
-            else if (dipDir >= 180 && dipDir < 270) qDipDir = "SW";
+            let dDir = Math.round(dipDir) % 360;
+            if (dDir >= 0 && dDir < 90) qDipDir = "NE";
+            else if (dDir >= 90 && dDir < 180) qDipDir = "SE";
+            else if (dDir >= 180 && dDir < 270) qDipDir = "SW";
             else qDipDir = "NW";
 
-            return `${qStrike} / ${dip}°${qDipDir}`;
+            return `${qStrike} / ${Math.round(dip)}°${qDipDir}`;
         }
 
         // 更新羅盤與GPS畫面
         function updateSensorUI() {
-            // 更新數字顯示
-            elStrike.innerText = sensorData.strike.toString().padStart(3, '0');
+            // 根據模式切換顯示數字
+            if (displayMode === 'dipDir') {
+                elPrimary.innerText = sensorData.dipDir.toString().padStart(3, '0');
+            } else {
+                elPrimary.innerText = sensorData.strike.toString().padStart(3, '0');
+            }
+            
             elDip.innerText = sensorData.dip.toString().padStart(2, '0');
             
-            // 更新方位角象限顯示
-            elQuadrant.innerText = getQuadrantString(sensorData.strike, sensorData.dip);
+            // 更新方位角象限顯示 (永遠提供正確的標準化資訊)
+            elQuadrant.innerText = getQuadrantString(sensorData.strike, sensorData.dipDir, sensorData.dip);
 
-            // 更新坐標顯示 (依照所選坐標系統)
             if (sensorData.lat && sensorData.lng) {
                 if (coordSystem === 'WGS84') {
                     elCoords.innerText = `${sensorData.lat.toFixed(5)}, ${sensorData.lng.toFixed(5)}`;
                 } else {
-                    // 將 WGS84 轉為 TWD97
                     let twd97 = proj4('EPSG:4326', 'EPSG:3826', [sensorData.lng, sensorData.lat]);
-                    // TWD97 習慣顯示 X, Y 整數公尺
                     elCoords.innerText = `${twd97[0].toFixed(0)}, ${twd97[1].toFixed(0)}`;
                 }
             }
@@ -381,18 +398,14 @@
             isLocked = !isLocked;
             
             if (isLocked) {
-                // 鎖定狀態
                 btnLock.innerText = '解鎖重新讀取';
                 btnLock.className = 'bg-yellow-500 text-white mt-4 w-full py-4 rounded-xl font-bold text-lg shadow-md transition-all active:scale-95';
                 compassCard.className = 'bg-green-50 p-6 rounded-2xl shadow-lg text-center transition-colors duration-300';
-                
                 btnSave.className = 'bg-emerald-600 text-white hover:bg-emerald-700 w-full py-5 rounded-xl font-black text-xl shadow-lg flex justify-center items-center gap-2 transition-all active:scale-95';
             } else {
-                // 解鎖狀態
                 btnLock.innerText = '鎖定數值 (Lock)';
                 btnLock.className = 'bg-blue-600 text-white mt-4 w-full py-4 rounded-xl font-bold text-lg shadow-md transition-all active:scale-95';
                 compassCard.className = 'bg-white p-6 rounded-2xl shadow-lg text-center transition-colors duration-300';
-                
                 btnSave.className = 'bg-gray-300 text-gray-500 cursor-not-allowed w-full py-5 rounded-xl font-black text-xl shadow-lg flex justify-center items-center gap-2 transition-all active:scale-95';
             }
         });
@@ -400,17 +413,12 @@
         // 設定弱面類型
         function setType(type) {
             currentType = type;
-            
-            // 重置所有按鈕樣式
             document.querySelectorAll('.type-btn').forEach(btn => {
                 btn.className = 'type-btn border-gray-200 bg-white text-gray-500 py-3 rounded-lg font-bold border-2 transition-all flex flex-col items-center';
             });
-            
-            // 標示選中按鈕
             const activeBtn = document.getElementById(`btn-type-${type}`);
             activeBtn.className = 'type-btn border-blue-600 bg-blue-50 text-blue-700 py-3 rounded-lg font-bold border-2 transition-all flex flex-col items-center';
 
-            // 僅在節理面顯示 J1/J2/J3 面板
             if (type === '節理面') {
                 jointSetContainer.classList.remove('hidden');
             } else {
@@ -435,28 +443,23 @@
                 type: currentType,
                 jointSet: (isJoint && currentJointSet !== '無') ? currentJointSet : '',
                 strike: sensorData.strike,
+                dipDir: sensorData.dipDir,
                 dip: sensorData.dip,
-                quadrant: getQuadrantString(sensorData.strike, sensorData.dip), // 順便存入象限資料
-                lat: sensorData.lat, // 一律以 WGS84 格式存入資料庫
+                quadrant: getQuadrantString(sensorData.strike, sensorData.dipDir, sensorData.dip),
+                lat: sensorData.lat, 
                 lng: sensorData.lng,
                 remark: inputRemark.value
             };
 
-            // 加入陣列前端
             measurements.unshift(newData);
             
-            // 重置表單
             isLocked = false;
-            btnLock.click(); // 觸發解鎖UI更新
+            btnLock.click(); 
             inputRemark.value = '';
             
-            // 更新紀錄列表
             renderList();
             
-            // 提示音或簡單震動反饋 (行動裝置支援的話)
             if (navigator.vibrate) navigator.vibrate(50);
-            
-            // 也可以自訂 Toast 提示，這裡用簡單的 alert 替代
             alert(`成功儲存第 ${measurements.length} 筆資料！`);
         });
 
@@ -486,9 +489,9 @@
                         <div class="flex items-center gap-1 mb-1 flex-wrap">
                             <span class="px-2 py-1 text-xs font-bold rounded-md ${badgeClass}">${m.type}</span>
                             ${tagHtml}
-                            <span class="font-bold text-lg ml-1">${m.strike}° / ${m.dip}°</span>
+                            <span class="font-bold text-[15px] ml-1 text-gray-800">${m.dipDir}° / ${m.dip}° (傾向/傾角)</span>
                         </div>
-                        <div class="text-sm font-semibold text-blue-600 mb-2">${m.quadrant}</div>
+                        <div class="text-sm font-semibold text-blue-600 mb-2">走向方位: ${m.quadrant}</div>
                         ${remarkHtml}
                         <div class="text-xs text-gray-400 flex items-center gap-1">
                             <i data-feather="map-pin" class="w-3 h-3"></i> ${m.lng.toFixed(5)}, ${m.lat.toFixed(5)} (WGS84)
@@ -498,7 +501,6 @@
                 listContainer.insertAdjacentHTML('beforeend', itemHtml);
             });
             
-            // 重新繪製新加入的 icons
             feather.replace();
         }
 
@@ -522,12 +524,13 @@
         時間: ${m.time}
         露頭: ${m.outcrop}
         類型: ${m.type}${jointInfo}
+        傾向/傾角: ${m.dipDir}° / ${m.dip}°
         走向/傾角: ${m.strike}° / ${m.dip}°
-        方位角表示: ${m.quadrant}
+        走向方位: ${m.quadrant}
         備註: ${m.remark}
       </description>
       <Point>
-        <coordinates>${m.lng},${m.lat},0</coordinates> <!-- 這裡的坐標必須是 WGS84 格式 -->
+        <coordinates>${m.lng},${m.lat},0</coordinates>
       </Point>
     </Placemark>\n`;
             });
@@ -545,12 +548,9 @@
             URL.revokeObjectURL(url);
         }
 
-        // 切換 Tab 邏輯
         function switchTab(tabId) {
-            // 隱藏所有內容
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             
-            // 重置所有導航按鈕狀態
             document.querySelectorAll('.nav-btn').forEach(btn => {
                 btn.classList.remove('text-blue-600');
                 btn.classList.add('text-gray-400', 'hover:text-gray-600');
@@ -558,10 +558,8 @@
                 btn.querySelector('div').classList.add('scale-100');
             });
 
-            // 顯示目標內容
             document.getElementById(`tab-${tabId}`).classList.remove('hidden');
             
-            // 啟用目標導航按鈕
             const activeBtn = document.getElementById(`nav-${tabId}`);
             activeBtn.classList.remove('text-gray-400', 'hover:text-gray-600');
             activeBtn.classList.add('text-blue-600');
@@ -569,7 +567,6 @@
             activeBtn.querySelector('div').classList.add('scale-110');
         }
 
-        // 初始化啟動
         startSensor();
         
     </script>
